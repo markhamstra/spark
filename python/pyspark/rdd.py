@@ -1143,6 +1143,23 @@ class RDD(object):
         """
         return python_right_outer_join(self, other, numPartitions)
 
+    def fullOuterJoin(self, other, numPartitions=None):
+        """
+        Perform a full outer join of C{self} and C{other}.
+
+        Output will have each row from both RDDs or None where missing, i.e.
+        one of (k, (v, w)), (k, (v, None)), or (k, (None, w)) depending on
+        the presence of (k, v) and/or (k, w) in C{self} and C{other}
+
+        Hash-partitions the resulting RDD into the given number of partitions.
+
+        >>> x = sc.parallelize([("a", 1), ("b", 4)])
+        >>> y = sc.parallelize([("a", 2)])
+        >>> sorted(y.fullOuterJoin(x).collect())
+        [('a', (2, 1)), ('b', (None, 4))]
+        """
+        return python_full_outer_join(self, other, numPartitions)
+
     # TODO: add option to control map-side combining
     def partitionBy(self, numPartitions, partitionFunc=None):
         """

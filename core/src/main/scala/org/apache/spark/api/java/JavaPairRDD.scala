@@ -409,6 +409,19 @@ class JavaPairRDD[K, V](val rdd: RDD[(K, V)])
   }
 
   /**
+   * Perform a full outer join of `this` and `other`. Output will have
+   * each row from both RDDs or `None` where missing, i.e. one of
+   * (k, (Some(v), Some(w)), (k, (Some(v), None)) or (k, (None, Some(w))
+   * depending on the presence of (k, v) and/or (k, w) in `this` and `other`
+   * Uses the given Partitioner to partition the output RDD.
+   */
+  def fullOuterJoin[W](other: JavaPairRDD[K, W], partitioner: Partitioner)
+  : JavaPairRDD[K, (Optional[V], Optional[W])] = {
+    val joinResult = rdd.fullOuterJoin(other, partitioner)
+    fromRDD(joinResult.mapValues{case (v, w) => (JavaUtils.optionToOptional(v), JavaUtils.optionToOptional(w))})
+  }
+
+  /** 
    * Simplified version of combineByKey that hash-partitions the resulting RDD using the existing
    * partitioner/parallelism level.
    */
@@ -500,6 +513,24 @@ class JavaPairRDD[K, V](val rdd: RDD[(K, V)])
   : JavaPairRDD[K, (Optional[V], W)] = {
     val joinResult = rdd.rightOuterJoin(other, numPartitions)
     fromRDD(joinResult.mapValues{case (v, w) => (JavaUtils.optionToOptional(v), w)})
+  }
+
+  /**
+   * Perform a full outer join of `this` and `other`. Hash-partitions the resulting
+   * RDD using the existing partitioner/parallelism level.
+   */
+  def fullOuterJoin[W](other: JavaPairRDD[K, W]): JavaPairRDD[K, (Optional[V], Optional[W])] = {
+    val joinResult = rdd.fullOuterJoin(other)
+    fromRDD(joinResult.mapValues{case (v, w) => (JavaUtils.optionToOptional(v), JavaUtils.optionToOptional(w))})
+  }
+
+  /**
+   * Perform a full outer join of `this` and `other`. Hash-partitions the resulting
+   * RDD into the given number of partitions.
+   */
+  def fullOuterJoin[W](other: JavaPairRDD[K, W], numPartitions: Int): JavaPairRDD[K, (Optional[V], Optional[W])] = {
+    val joinResult = rdd.fullOuterJoin(other, numPartitions)
+    fromRDD(joinResult.mapValues{case (v, w) => (JavaUtils.optionToOptional(v), JavaUtils.optionToOptional(w))})
   }
 
   /**

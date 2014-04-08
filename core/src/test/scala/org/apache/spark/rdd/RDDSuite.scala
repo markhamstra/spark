@@ -185,6 +185,7 @@ class RDDSuite extends FunSuite with SharedSparkContext {
     assert(rdd.join(emptyKv).collect().size === 0)
     assert(rdd.rightOuterJoin(emptyKv).collect().size === 0)
     assert(rdd.leftOuterJoin(emptyKv).collect().size === 2)
+    assert(rdd.fullOuterJoin(emptyKv).collect().size === 2)
     assert(rdd.cogroup(emptyKv).collect().size === 2)
     assert(rdd.union(emptyKv).collect().size === 2)
   }
