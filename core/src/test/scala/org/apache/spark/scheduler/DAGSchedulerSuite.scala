@@ -137,10 +137,6 @@ class DAGSchedulerSuite
       Props(classOf[DAGSchedulerEventProcessActor], scheduler))(system)
   }
 
-  after {
-    scheduler.stop()
-  }
-
   override def afterAll() {
     super.afterAll()
     TestKit.shutdownActorSystem(system)

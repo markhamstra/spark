@@ -872,7 +872,7 @@ class DAGScheduler(
       logDebug("Trying to cancel unregistered job " + jobId)
     } else {
       failJobAndIndependentStages(jobIdToActiveJob(jobId),
-        "Job %d cancelled %s".format(jobId, reason), None)
+        s"Job $jobId cancelled $reason", None)
     }
   }
 
