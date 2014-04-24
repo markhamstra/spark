@@ -1154,9 +1154,9 @@ class RDD(object):
         Hash-partitions the resulting RDD into the given number of partitions.
 
         >>> x = sc.parallelize([("a", 1), ("b", 4)])
-        >>> y = sc.parallelize([("a", 2)])
+        >>> y = sc.parallelize([("a", 2), ("c", 3)])
         >>> sorted(y.fullOuterJoin(x).collect())
-        [('a', (2, 1)), ('b', (None, 4))]
+        [('a', (2, 1)), ('b', (None, 4)), ('c', (3, None))]
         """
         return python_full_outer_join(self, other, numPartitions)
 
