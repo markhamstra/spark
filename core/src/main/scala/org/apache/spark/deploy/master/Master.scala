@@ -41,7 +41,7 @@ import org.apache.spark.deploy.master.ui.MasterWebUI
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.scheduler.{EventLoggingListener, ReplayListenerBus}
 import org.apache.spark.ui.SparkUI
-import org.apache.spark.util.{AkkaUtils, Utils}
+import org.apache.spark.util.{AkkaUtils, UncaughtExceptionHandler, Utils}
 
 private[spark] class Master(
     host: String,
@@ -171,7 +171,10 @@ private[spark] class Master(
       logInfo("I have been elected leader! New state: " + state)
       if (state == RecoveryState.RECOVERING) {
         beginRecovery(storedApps, storedDrivers, storedWorkers)
-        context.system.scheduler.scheduleOnce(WORKER_TIMEOUT millis) { completeRecovery() }
+        context.system.scheduler.scheduleOnce(WORKER_TIMEOUT millis) {
+          Thread.currentThread.setUncaughtExceptionHandler(UncaughtExceptionHandler)
+          completeRecovery()
+        }
       }
     }
 
