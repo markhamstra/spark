@@ -899,10 +899,9 @@ class DAGScheduler(
         }
         logInfo("The failed fetch was from " + mapStage + " (" + mapStage.name +
           "); marking it for resubmission")
-        if (failedStages.isEmpty && dagSchedulerActorSupervisor != null) {
+        if (failedStages.isEmpty) {
           // Don't schedule an event to resubmit failed stages if failed isn't empty, because
-          // in that case the event will already have been scheduled. eventProcessActor may be
-          // null during unit tests.
+          // in that case the event will already have been scheduled. 
           import env.actorSystem.dispatcher
           env.actorSystem.scheduler.scheduleOnce(
             RESUBMIT_TIMEOUT, dagSchedulerActorSupervisor, ResubmitFailedStages)
