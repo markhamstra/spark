@@ -300,7 +300,8 @@ class SparkContext(config: SparkConf) extends Logging {
 
   // Create and start the scheduler
   private[spark] var taskScheduler = SparkContext.createTaskScheduler(this, master)
-  @volatile private[spark] var dagScheduler: DAGScheduler = new DAGScheduler(this)
+  @volatile private[spark] var dagSchedulerStopped = false
+  private val dagScheduler: DAGScheduler = new DAGScheduler(this)
 
   // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
   // constructor
@@ -958,12 +959,13 @@ class SparkContext(config: SparkConf) extends Logging {
     ui.stop()
     // Do this only if not stopped already - best case effort.
     // prevent NPE if stopped more than once.
-    val dagSchedulerCopy = dagScheduler
-    dagScheduler = null
-    if (dagSchedulerCopy != null) {
+    if (dagSchedulerStopped) {
+      logInfo("SparkContext already stopped")
+    } else {
       metadataCleaner.cancel()
       cleaner.foreach(_.stop())
-      dagSchedulerCopy.stop()
+      dagSchedulerStopped = true
+      dagScheduler.stop()
       taskScheduler = null
       // TODO: Cache.stop()?
       env.stop()
@@ -973,8 +975,6 @@ class SparkContext(config: SparkConf) extends Logging {
       listenerBus.stop()
       eventLogger.foreach(_.stop())
       logInfo("Successfully stopped SparkContext")
-    } else {
-      logInfo("SparkContext already stopped")
     }
   }
 
