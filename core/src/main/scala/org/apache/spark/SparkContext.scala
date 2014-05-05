@@ -300,13 +300,7 @@ class SparkContext(config: SparkConf) extends Logging {
 
   // Create and start the scheduler
   private[spark] var taskScheduler = SparkContext.createTaskScheduler(this, master)
-  @volatile private[spark] var dagScheduler: DAGScheduler = _
-  try {
-    dagScheduler = new DAGScheduler(this)
-  } catch {
-    case e: Exception => throw
-      new SparkException("DAGScheduler cannot be initialized due to %s".format(e.getMessage))
-  }
+  @volatile private[spark] var dagScheduler: DAGScheduler = new DAGScheduler(this)
 
   // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
   // constructor
