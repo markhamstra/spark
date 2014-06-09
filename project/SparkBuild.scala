@@ -224,7 +224,7 @@ object SparkBuild extends Build {
         "org.eclipse.jetty" % "jetty-server"    % "7.6.8.v20121106",
         /** Workaround for SPARK-959. Dependency used by org.eclipse.jetty. Fixed in ivy 2.3.0. */
         "org.eclipse.jetty.orbit" % "javax.servlet" % "2.5.0.v201103041518" artifacts Artifact("javax.servlet", "jar", "jar"),
-        "org.scalatest"    %% "scalatest"       % "2.1.5"  % "test",
+        "org.scalatest"    %% "scalatest"       % "2.2.0"  % "test",
         "org.scalacheck"   %% "scalacheck"      % "1.11.3" % "test",
         "com.novocode"      % "junit-interface" % "0.10"   % "test",
         "org.easymock"      % "easymockclassextension" % "3.1"    % "test",
