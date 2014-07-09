@@ -264,22 +264,29 @@ private[spark] class Master(host: String, port: Int, webUiPort: Int) extends Act
       val execOption = idToApp.get(appId).flatMap(app => app.executors.get(execId))
       execOption match {
         case Some(exec) => {
+          val appInfo = idToApp(appId)
           exec.state = state
+          if (state == ExecutorState.RUNNING) { appInfo.resetRetryCount() }
           exec.application.driver ! ExecutorUpdated(execId, state, message, exitStatus)
           if (ExecutorState.isFinished(state)) {
-            val appInfo = idToApp(appId)
             // Remove this executor from the worker and app
             logInfo("Removing executor " + exec.fullId + " because it is " + state)
             appInfo.removeExecutor(exec)
             exec.worker.removeExecutor(exec)
 
+            val normalExit = exitStatus == Some(0)
             // Only retry certain number of times so we don't go into an infinite loop.
-            if (appInfo.incrementRetryCount < ApplicationState.MAX_NUM_RETRY) {
-              schedule()
-            } else {
-              logError("Application %s with ID %s failed %d times, removing it".format(
-                appInfo.desc.name, appInfo.id, appInfo.retryCount))
-              removeApplication(appInfo, ApplicationState.FAILED)
+            if (!normalExit) {
+              if (appInfo.incrementRetryCount() < ApplicationState.MAX_NUM_RETRY) {
+                schedule()
+              } else {
+                logError("Application %s with ID %s failed %d times, removing it".format(
+                  appInfo.desc.name, appInfo.id, appInfo.retryCount))
+                val execs = idToApp(appId).executors.values
+                if (!execs.exists(_.state == ExecutorState.RUNNING)) {
+                  removeApplication(appInfo, ApplicationState.FAILED)
+                }
+              }
             }
           }
         }
