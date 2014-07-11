@@ -270,7 +270,7 @@ private[spark] class Master(host: String, port: Int, webUiPort: Int) extends Act
           exec.application.driver ! ExecutorUpdated(execId, state, message, exitStatus)
           if (ExecutorState.isFinished(state)) {
             // Remove this executor from the worker and app
-            logInfo("Removing executor " + exec.fullId + " because it is " + state)
+            logInfo(s"Removing executor ${exec.fullId} because it is $state")
             appInfo.removeExecutor(exec)
             exec.worker.removeExecutor(exec)
 
@@ -280,8 +280,8 @@ private[spark] class Master(host: String, port: Int, webUiPort: Int) extends Act
               if (appInfo.incrementRetryCount() < ApplicationState.MAX_NUM_RETRY) {
                 schedule()
               } else {
-                logError("Application %s with ID %s failed %d times, removing it".format(
-                  appInfo.desc.name, appInfo.id, appInfo.retryCount))
+                logError(s"Application ${appInfo.desc.name} with ID ${appInfo.id} failed " +
+                  s"${appInfo.retryCount} times; removing it")
                 val execs = idToApp(appId).executors.values
                 if (!execs.exists(_.state == ExecutorState.RUNNING)) {
                   removeApplication(appInfo, ApplicationState.FAILED)
@@ -291,7 +291,7 @@ private[spark] class Master(host: String, port: Int, webUiPort: Int) extends Act
           }
         }
         case None =>
-          logWarning("Got status update for unknown executor " + appId + "/" + execId)
+          logWarning(s"Got status update for unknown executor $appId/$execId")
       }
     }
 
