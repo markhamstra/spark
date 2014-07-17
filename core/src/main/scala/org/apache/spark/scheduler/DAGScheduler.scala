@@ -1105,7 +1105,7 @@ class DAGScheduler(
           dep match {
             case shufDep: ShuffleDependency[_, _, _] =>
               val mapStage = getShuffleMapStage(shufDep, stage.jobId)
-              if (!mapStage.isAvailable) {
+              if (!mapStage.isAvailable && !visitedStages(mapStage)) {
                 visitedStages += mapStage
                 visit(mapStage.rdd)
               }  // Otherwise there's no need to follow the dependency back
