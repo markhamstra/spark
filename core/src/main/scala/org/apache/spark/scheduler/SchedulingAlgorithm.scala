@@ -28,6 +28,10 @@ private[spark] trait SchedulingAlgorithm {
 
 private[spark] class FIFOSchedulingAlgorithm extends SchedulingAlgorithm {
   override def comparator(s1: Schedulable, s2: Schedulable): Boolean = {
+    import scala.math.Ordering.Implicits._
+    (s1.priority, s2.jobId, s2.stageId) > (s2.priority, s1.jobId, s1.stageId)
+  }
+/*  override def comparator(s1: Schedulable, s2: Schedulable): Boolean = {
     val priority1 = s1.priority
     val priority2 = s2.priority
     var res = math.signum(priority1 - priority2)
@@ -52,6 +56,7 @@ private[spark] class FIFOSchedulingAlgorithm extends SchedulingAlgorithm {
       false
     }
   }
+ */
 }
 
 private[spark] class FairSchedulingAlgorithm extends SchedulingAlgorithm {
