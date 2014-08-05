@@ -67,45 +67,47 @@ class AsyncRDDActions[T: ClassTag](self: RDD[T]) extends Serializable with Loggi
    * Returns a future for retrieving the first num elements of the RDD.
    */
   def takeAsync(num: Int): FutureAction[Seq[T]] = {
-    val f = new ComplexFutureAction[Seq[T]]
+    self.setAsyncContext(new ComplexFutureAction[Any])
 
-    f.run {
-      val results = new ArrayBuffer[T](num)
-      val totalParts = self.partitions.length
-      var partsScanned = 0
-      while (results.size < num && partsScanned < totalParts) {
-        // The number of partitions to try in this iteration. It is ok for this number to be
-        // greater than totalParts because we actually cap it at totalParts in runJob.
-        var numPartsToTry = 1
-        if (partsScanned > 0) {
-          // If we didn't find any rows after the first iteration, just try all partitions next.
-          // Otherwise, interpolate the number of partitions we need to try, but overestimate it
-          // by 50%.
-          if (results.size == 0) {
-            numPartsToTry = totalParts - 1
-          } else {
-            numPartsToTry = (1.5 * num * partsScanned / results.size).toInt
+    self.asyncContext.map { f =>
+      f.run {
+        val results = new ArrayBuffer[T](num)
+        val totalParts = self.partitions.length
+        var partsScanned = 0
+        while (results.size < num && partsScanned < totalParts) {
+          // The number of partitions to try in this iteration. It is ok for this number to be
+          // greater than totalParts because we actually cap it at totalParts in runJob.
+          var numPartsToTry = 1
+          if (partsScanned > 0) {
+            // If we didn't find any rows after the first iteration, just try all partitions next.
+            // Otherwise, interpolate the number of partitions we need to try, but overestimate it
+            // by 50%.
+            if (results.size == 0) {
+              numPartsToTry = totalParts - 1
+            } else {
+              numPartsToTry = (1.5 * num * partsScanned / results.size).toInt
+            }
           }
+          numPartsToTry = math.max(0, numPartsToTry) // guard against negative num of partitions
+
+          val left = num - results.size
+          val p = partsScanned until math.min(partsScanned + numPartsToTry, totalParts)
+
+          val buf = new Array[Array[T]](p.size)
+          f.runJob(self,
+            (it: Iterator[T]) => it.take(left).toArray,
+            p,
+            (index: Int, data: Array[T]) => buf(index) = data,
+            Unit)
+
+          buf.foreach(results ++= _.take(num - results.size))
+          partsScanned += numPartsToTry
         }
-        numPartsToTry = math.max(0, numPartsToTry)  // guard against negative num of partitions
-
-        val left = num - results.size
-        val p = partsScanned until math.min(partsScanned + numPartsToTry, totalParts)
-
-        val buf = new Array[Array[T]](p.size)
-        f.runJob(self,
-          (it: Iterator[T]) => it.take(left).toArray,
-          p,
-          (index: Int, data: Array[T]) => buf(index) = data,
-          Unit)
-
-        buf.foreach(results ++= _.take(num - results.size))
-        partsScanned += numPartsToTry
+        results.toSeq
       }
-      results.toSeq
-    }
 
-    f
+      f
+    }.asInstanceOf[FutureAction[Seq[T]]]
   }
 
   /**

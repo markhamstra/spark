@@ -121,6 +121,16 @@ abstract class RDD[T: ClassTag](
   /** The SparkContext that created this RDD. */
   def sparkContext: SparkContext = sc
 
+  /** The AsyncContext in which composite jobs may run. */
+  @transient private var asyncContext_ : Option[ComplexFutureAction[Any]] = None
+  def asyncContext: Option[ComplexFutureAction[Any]] = asyncContext_
+
+  /** Assign an AsyncContext to this RDD */
+  def setAsyncContext(complexFutureAction: ComplexFutureAction[Any]): this.type = {
+    asyncContext_ = Some(complexFutureAction)
+    this
+  }
+
   /** A unique ID for this RDD (within its SparkContext). */
   val id: Int = sc.newRddId()
 

@@ -127,34 +127,38 @@ class RangePartitioner[K : Ordering : ClassTag, V](
       // Assume the input partitions are roughly balanced and over-sample a little bit.
       val sampleSizePerPartition = math.ceil(3.0 * sampleSize / rdd.partitions.size).toInt
       val (numItems, sketched) = RangePartitioner.sketch(rdd.map(_._1), sampleSizePerPartition)
-      if (numItems == 0L) {
-        Array.empty
-      } else {
-        // If a partition contains much more than the average number of items, we re-sample from it
-        // to ensure that enough items are collected from that partition.
-        val fraction = math.min(sampleSize / math.max(numItems, 1L), 1.0)
-        val candidates = ArrayBuffer.empty[(K, Float)]
-        val imbalancedPartitions = mutable.Set.empty[Int]
-        sketched.foreach { case (idx, n, sample) =>
-          if (fraction * n > sampleSizePerPartition) {
-            imbalancedPartitions += idx
-          } else {
-            // The weight is 1 over the sampling probability.
-            val weight = (n.toDouble / sample.size).toFloat
-            for (key <- sample) {
-              candidates += ((key, weight))
+      rdd.asyncContext.map { complexFutureAction =>
+        throw new NotImplementedError("AsyncContext not yet available")
+      } getOrElse {
+        if (numItems == 0L) {
+          Array.empty
+        } else {
+          // If a partition contains much more than the average number of items, we re-sample from
+          // it to ensure that enough items are collected from that partition.
+          val fraction = math.min(sampleSize / math.max(numItems, 1L), 1.0)
+          val candidates = ArrayBuffer.empty[(K, Float)]
+          val imbalancedPartitions = mutable.Set.empty[Int]
+          sketched.foreach { case (idx, n, sample) =>
+            if (fraction * n > sampleSizePerPartition) {
+              imbalancedPartitions += idx
+            } else {
+              // The weight is 1 over the sampling probability.
+              val weight = (n.toDouble / sample.size).toFloat
+              for (key <- sample) {
+                candidates += ((key, weight))
+              }
             }
           }
+          if (imbalancedPartitions.nonEmpty) {
+            // Re-sample imbalanced partitions with the desired sampling probability.
+            val imbalanced = new PartitionPruningRDD(rdd.map(_._1), imbalancedPartitions.contains)
+            val seed = byteswap32(-rdd.id - 1)
+            val reSampled = imbalanced.sample(withReplacement = false, fraction, seed).collect()
+            val weight = (1.0 / fraction).toFloat
+            candidates ++= reSampled.map(x => (x, weight))
+          }
+          RangePartitioner.determineBounds(candidates, partitions)
         }
-        if (imbalancedPartitions.nonEmpty) {
-          // Re-sample imbalanced partitions with the desired sampling probability.
-          val imbalanced = new PartitionPruningRDD(rdd.map(_._1), imbalancedPartitions.contains)
-          val seed = byteswap32(-rdd.id - 1)
-          val reSampled = imbalanced.sample(withReplacement = false, fraction, seed).collect()
-          val weight = (1.0 / fraction).toFloat
-          candidates ++= reSampled.map(x => (x, weight))
-        }
-        RangePartitioner.determineBounds(candidates, partitions)
       }
     }
 
@@ -261,16 +265,20 @@ private[spark] object RangePartitioner {
   def sketch[K:ClassTag](
       rdd: RDD[K],
       sampleSizePerPartition: Int): (Long, Array[(Int, Int, Array[K])]) = {
-    val shift = rdd.id
-    // val classTagK = classTag[K] // to avoid serializing the entire partitioner object
-    val sketched = rdd.mapPartitionsWithIndex { (idx, iter) =>
-      val seed = byteswap32(idx ^ (shift << 16))
-      val (sample, n) = SamplingUtils.reservoirSampleAndCount(
-        iter, sampleSizePerPartition, seed)
-      Iterator((idx, n, sample))
-    }.collect()
-    val numItems = sketched.map(_._2.toLong).sum
-    (numItems, sketched)
+    rdd.asyncContext.map { complexFutureAction =>
+      throw new NotImplementedError("AsyncContext not yet available")
+    } getOrElse {
+      val shift = rdd.id
+      // val classTagK = classTag[K] // to avoid serializing the entire partitioner object
+      val sketched = rdd.mapPartitionsWithIndex { (idx, iter) =>
+        val seed = byteswap32(idx ^ (shift << 16))
+        val (sample, n) = SamplingUtils.reservoirSampleAndCount(
+          iter, sampleSizePerPartition, seed)
+        Iterator((idx, n, sample))
+      }.collect()
+      val numItems = sketched.map(_._2.toLong).sum
+      (numItems, sketched)
+    }
   }
 
   /**
