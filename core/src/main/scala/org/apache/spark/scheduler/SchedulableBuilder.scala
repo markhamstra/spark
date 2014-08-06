@@ -62,7 +62,7 @@ private[spark] class FairSchedulableBuilder(val rootPool: Pool, conf: SparkConf)
   val WEIGHT_PROPERTY = "weight"
   val POOL_NAME_PROPERTY = "@name"
   val POOLS_PROPERTY = "pool"
-  val DEFAULT_SCHEDULING_MODE = SchedulingMode.FIFO
+  val DEFAULT_SCHEDULING_MODE = SchedulingMode.FAIR
   val DEFAULT_MINIMUM_SHARE = 0
   val DEFAULT_WEIGHT = 1
 
