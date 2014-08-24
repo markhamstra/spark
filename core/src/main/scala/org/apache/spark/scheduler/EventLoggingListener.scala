@@ -67,7 +67,7 @@ private[spark] class EventLoggingListener(
   /**
    * Return only the unique application directory without the base directory.
    */
-  def getApplicationLogDir(): String = {
+  def getApplicationLogDir: String = {
     name
   }
 

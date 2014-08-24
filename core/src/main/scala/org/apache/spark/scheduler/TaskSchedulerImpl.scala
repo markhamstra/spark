@@ -34,7 +34,6 @@ import org.apache.spark.scheduler.SchedulingMode.SchedulingMode
 import org.apache.spark.util.Utils
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.storage.BlockManagerId
-import akka.actor.Props
 
 /**
  * Schedules tasks for multiple types of clusters by acting through a SchedulerBackend.
@@ -522,7 +521,7 @@ private[spark] object TaskSchedulerImpl {
     while (found) {
       found = false
       for (key <- keyList) {
-        val containerList: ArrayBuffer[T] = map.get(key).getOrElse(null)
+        val containerList: ArrayBuffer[T] = map.getOrElse(key, null)
         assert(containerList != null)
         // Get the index'th entry for this host - if present
         if (index < containerList.size){

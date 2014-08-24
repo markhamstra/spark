@@ -306,7 +306,7 @@ class DAGScheduler(
       }
     }
     waitingForVisit.push(rdd)
-    while (!waitingForVisit.isEmpty) {
+    while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.pop())
     }
     parents.toList
@@ -315,7 +315,7 @@ class DAGScheduler(
   // Find ancestor missing shuffle dependencies and register into shuffleToMapStage
   private def registerShuffleDependencies(shuffleDep: ShuffleDependency[_, _, _], jobId: Int) = {
     val parentsWithNoMapStage = getAncestorShuffleDependencies(shuffleDep.rdd)
-    while (!parentsWithNoMapStage.isEmpty) {
+    while (parentsWithNoMapStage.nonEmpty) {
       val currentShufDep = parentsWithNoMapStage.pop()
       val stage =
         newOrUsedStage(
@@ -351,7 +351,7 @@ class DAGScheduler(
     }
 
     waitingForVisit.push(rdd)
-    while (!waitingForVisit.isEmpty) {
+    while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.pop())
     }
     parents
@@ -1012,7 +1012,7 @@ class DAGScheduler(
                   changeEpoch = true)
               }
               clearCacheLocs()
-              if (stage.outputLocs.exists(_ == Nil)) {
+              if (stage.outputLocs.contains(Nil)) {
                 // Some tasks had failed; let's resubmit this stage
                 // TODO: Lower-level scheduler should also deal with this
                 logInfo("Resubmitting " + stage + " (" + stage.name +
@@ -1250,7 +1250,7 @@ class DAGScheduler(
       }
     }
     waitingForVisit.push(stage.rdd)
-    while (!waitingForVisit.isEmpty) {
+    while (waitingForVisit.nonEmpty) {
       visit(waitingForVisit.pop())
     }
     visitedRdds.contains(target.rdd)
@@ -1282,12 +1282,12 @@ class DAGScheduler(
     }
     // If the partition is cached, return the cache locations
     val cached = getCacheLocs(rdd)(partition)
-    if (!cached.isEmpty) {
+    if (cached.nonEmpty) {
       return cached
     }
     // If the RDD has some placement preferences (as is the case for input RDDs), get those
     val rddPrefs = rdd.preferredLocations(rdd.partitions(partition)).toList
-    if (!rddPrefs.isEmpty) {
+    if (rddPrefs.nonEmpty) {
       return rddPrefs.map(host => TaskLocation(host))
     }
     // If the RDD has narrow dependencies, pick the first partition of the first narrow dep

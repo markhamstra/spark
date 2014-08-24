@@ -26,9 +26,7 @@ import scala.collection.mutable.HashMap
 
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.executor.{DataReadMethod, TaskMetrics}
-import org.apache.spark.rdd.RDD
-import org.apache.spark.storage.StorageLevel
+import org.apache.spark.executor.TaskMetrics
 
 /**
  * :: DeveloperApi ::
@@ -79,7 +77,7 @@ class JobLogger(val user: String, val logDirName: String) extends SparkListener 
     if (dir.exists()) {
       return
     }
-    if (dir.mkdirs() == false) {
+    if (!dir.mkdirs()) {
       // JobLogger should throw a exception rather than continue to construct this object.
       throw new IOException("create log directory error:" + logDir + "/" + logDirName + "/")
     }
@@ -262,7 +260,7 @@ class JobLogger(val user: String, val logDirName: String) extends SparkListener 
   protected def recordJobProperties(jobId: Int, properties: Properties) {
     if (properties != null) {
       val description = properties.getProperty(SparkContext.SPARK_JOB_DESCRIPTION, "")
-      jobLogInfo(jobId, description, false)
+      jobLogInfo(jobId, description, withTime = false)
     }
   }
 

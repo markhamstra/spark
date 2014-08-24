@@ -98,7 +98,7 @@ private[spark] class FairSchedulableBuilder(val rootPool: Pool, conf: SparkConf)
 
   private def buildFairSchedulerPool(is: InputStream) {
     val xml = XML.load(is)
-    for (poolNode <- (xml \\ POOLS_PROPERTY)) {
+    for (poolNode <- xml \\ POOLS_PROPERTY) {
 
       val poolName = (poolNode \ POOL_NAME_PROPERTY).text
       var schedulingMode = DEFAULT_SCHEDULING_MODE

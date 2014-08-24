@@ -44,7 +44,7 @@ class DirectTaskResult[T](var valueBytes: ByteBuffer, var accumUpdates: Map[Long
 
   override def writeExternal(out: ObjectOutput) {
 
-    out.writeInt(valueBytes.remaining);
+    out.writeInt(valueBytes.remaining)
     Utils.writeByteBuffer(valueBytes, out)
 
     out.writeInt(accumUpdates.size)
