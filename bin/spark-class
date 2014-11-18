@@ -184,9 +184,9 @@ else
   # Note: The format of this command is closely echoed in SparkSubmitDriverBootstrapper.scala
   if [ -n "$SPARK_PRINT_LAUNCH_COMMAND" ]; then
     echo -n "Spark Command: " 1>&2
-    echo "$RUNNER" -cp "$CLASSPATH" $JAVA_OPTS "$@" 1>&2
+    echo "$RUNNER" $JAVA_OPTS "$@" 1>&2
     echo -e "========================================\n" 1>&2
   fi
-  exec "$RUNNER" -cp "$CLASSPATH" $JAVA_OPTS "$@"
+  exec "$RUNNER" $JAVA_OPTS "$@"
 fi
 
