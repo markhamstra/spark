@@ -21,69 +21,126 @@ Worker that receives input from Piped RDD.
 import os
 import sys
 import time
+import socket
 import traceback
-from base64 import standard_b64decode
-# CloudPickler needs to be imported so that depicklers are registered using the
-# copy_reg module.
+import cProfile
+import pstats
+
 from pyspark.accumulators import _accumulatorRegistry
 from pyspark.broadcast import Broadcast, _broadcastRegistry
-from pyspark.cloudpickle import CloudPickler
 from pyspark.files import SparkFiles
-from pyspark.serializers import write_with_length, read_with_length, write_int, \
-    read_long, write_long, read_int, dump_pickle, load_pickle, read_from_pickle_file
+from pyspark.serializers import write_with_length, write_int, read_long, \
+    write_long, read_int, SpecialLengths, UTF8Deserializer, PickleSerializer
+from pyspark import shuffle
 
-
-def load_obj(infile):
-    return load_pickle(standard_b64decode(infile.readline().strip()))
+pickleSer = PickleSerializer()
+utf8_deserializer = UTF8Deserializer()
 
 
 def report_times(outfile, boot, init, finish):
-    write_int(-3, outfile)
+    write_int(SpecialLengths.TIMING_DATA, outfile)
     write_long(1000 * boot, outfile)
     write_long(1000 * init, outfile)
     write_long(1000 * finish, outfile)
 
 
+def add_path(path):
+    # worker can be used, so donot add path multiple times
+    if path not in sys.path:
+        # overwrite system packages
+        sys.path.insert(1, path)
+
+
 def main(infile, outfile):
-    boot_time = time.time()
-    split_index = read_int(infile)
-    if split_index == -1:  # for unit tests
-        return
-    spark_files_dir = load_pickle(read_with_length(infile))
-    SparkFiles._root_directory = spark_files_dir
-    SparkFiles._is_running_on_worker = True
-    sys.path.append(spark_files_dir)
-    num_broadcast_variables = read_int(infile)
-    for _ in range(num_broadcast_variables):
-        bid = read_long(infile)
-        value = read_with_length(infile)
-        _broadcastRegistry[bid] = Broadcast(bid, load_pickle(value))
-    func = load_obj(infile)
-    bypassSerializer = load_obj(infile)
-    if bypassSerializer:
-        dumps = lambda x: x
-    else:
-        dumps = dump_pickle
-    init_time = time.time()
-    iterator = read_from_pickle_file(infile)
     try:
-        for obj in func(split_index, iterator):
-            write_with_length(dumps(obj), outfile)
-    except Exception as e:
-        write_int(-2, outfile)
-        write_with_length(traceback.format_exc(), outfile)
-        sys.exit(-1)
+        boot_time = time.time()
+        split_index = read_int(infile)
+        if split_index == -1:  # for unit tests
+            exit(-1)
+
+        # initialize global state
+        shuffle.MemoryBytesSpilled = 0
+        shuffle.DiskBytesSpilled = 0
+        _accumulatorRegistry.clear()
+
+        # fetch name of workdir
+        spark_files_dir = utf8_deserializer.loads(infile)
+        SparkFiles._root_directory = spark_files_dir
+        SparkFiles._is_running_on_worker = True
+
+        # fetch names of includes (*.zip and *.egg files) and construct PYTHONPATH
+        add_path(spark_files_dir)  # *.py files that were added will be copied here
+        num_python_includes = read_int(infile)
+        for _ in range(num_python_includes):
+            filename = utf8_deserializer.loads(infile)
+            add_path(os.path.join(spark_files_dir, filename))
+
+        # fetch names and values of broadcast variables
+        num_broadcast_variables = read_int(infile)
+        for _ in range(num_broadcast_variables):
+            bid = read_long(infile)
+            if bid >= 0:
+                path = utf8_deserializer.loads(infile)
+                _broadcastRegistry[bid] = Broadcast(path=path)
+            else:
+                bid = - bid - 1
+                _broadcastRegistry.pop(bid)
+
+        _accumulatorRegistry.clear()
+        command = pickleSer._read_with_length(infile)
+        if isinstance(command, Broadcast):
+            command = pickleSer.loads(command.value)
+        (func, stats, deserializer, serializer) = command
+        init_time = time.time()
+
+        def process():
+            iterator = deserializer.load_stream(infile)
+            serializer.dump_stream(func(split_index, iterator), outfile)
+
+        if stats:
+            p = cProfile.Profile()
+            p.runcall(process)
+            st = pstats.Stats(p)
+            st.stream = None  # make it picklable
+            stats.add(st.strip_dirs())
+        else:
+            process()
+    except Exception:
+        try:
+            write_int(SpecialLengths.PYTHON_EXCEPTION_THROWN, outfile)
+            write_with_length(traceback.format_exc(), outfile)
+        except IOError:
+            # JVM close the socket
+            pass
+        except Exception:
+            # Write the error to stderr if it happened while serializing
+            print >> sys.stderr, "PySpark worker failed with exception:"
+            print >> sys.stderr, traceback.format_exc()
+        exit(-1)
     finish_time = time.time()
     report_times(outfile, boot_time, init_time, finish_time)
+    write_long(shuffle.MemoryBytesSpilled, outfile)
+    write_long(shuffle.DiskBytesSpilled, outfile)
+
     # Mark the beginning of the accumulators section of the output
-    write_int(-1, outfile)
-    for aid, accum in _accumulatorRegistry.items():
-        write_with_length(dump_pickle((aid, accum._value)), outfile)
-    write_int(-1, outfile)
+    write_int(SpecialLengths.END_OF_DATA_SECTION, outfile)
+    write_int(len(_accumulatorRegistry), outfile)
+    for (aid, accum) in _accumulatorRegistry.items():
+        pickleSer._write_with_length((aid, accum._value), outfile)
+
+    # check end of stream
+    if read_int(infile) == SpecialLengths.END_OF_STREAM:
+        write_int(SpecialLengths.END_OF_STREAM, outfile)
+    else:
+        # write a different value to tell JVM to not reuse this worker
+        write_int(SpecialLengths.END_OF_DATA_SECTION, outfile)
+        exit(-1)
 
 
 if __name__ == '__main__':
-    # Redirect stdout to stderr so that users must return values from functions.
-    old_stdout = os.fdopen(os.dup(1), 'w')
-    os.dup2(2, 1)
-    main(sys.stdin, old_stdout)
+    # Read a local port to connect to from stdin
+    java_port = int(sys.stdin.readline())
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(("127.0.0.1", java_port))
+    sock_file = sock.makefile("a+", 65536)
+    main(sock_file, sock_file)

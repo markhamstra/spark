@@ -1,73 +1,98 @@
-# Spark
+# Apache Spark
 
-Lightning-Fast Cluster Computing - <http://www.spark-project.org/>
+Spark is a fast and general cluster computing system for Big Data. It provides
+high-level APIs in Scala, Java, and Python, and an optimized engine that
+supports general computation graphs for data analysis. It also supports a
+rich set of higher-level tools including Spark SQL for SQL and structured
+data processing, MLlib for machine learning, GraphX for graph processing,
+and Spark Streaming for stream processing.
+
+<http://spark.apache.org/>
 
 
 ## Online Documentation
 
 You can find the latest Spark documentation, including a programming
-guide, on the project webpage at <http://spark-project.org/documentation.html>.
+guide, on the [project web page](http://spark.apache.org/documentation.html)
+and [project wiki](https://cwiki.apache.org/confluence/display/SPARK).
 This README file only contains basic setup instructions.
 
+## Building Spark
 
-## Building
+Spark is built using [Apache Maven](http://maven.apache.org/).
+To build Spark and its example programs, run:
 
-Spark requires Scala 2.9.3 (Scala 2.10 is not yet supported). The project is
-built using Simple Build Tool (SBT), which is packaged with it. To build
-Spark and its example programs, run:
+    mvn -DskipTests clean package
 
-    sbt/sbt package
+(You do not need to do this if you downloaded a pre-built package.)
+More detailed documentation is available from the project site, at
+["Building Spark with Maven"](http://spark.apache.org/docs/latest/building-with-maven.html).
 
-Spark also supports building using Maven. If you would like to build using Maven,
-see the [instructions for building Spark with Maven](http://spark-project.org/docs/latest/building-with-maven.html)
-in the spark documentation..
+## Interactive Scala Shell
 
-To run Spark, you will need to have Scala's bin directory in your `PATH`, or
-you will need to set the `SCALA_HOME` environment variable to point to where
-you've installed Scala. Scala must be accessible through one of these
-methods on your cluster's worker nodes as well as its master.
+The easiest way to start using Spark is through the Scala shell:
 
-To run one of the examples, use `./run <class> <params>`. For example:
+    ./bin/spark-shell
 
-    ./run spark.examples.SparkLR local[2]
+Try the following command, which should return 1000:
 
-will run the Logistic Regression example locally on 2 CPUs.
+    scala> sc.parallelize(1 to 1000).count()
 
-Each of the example programs prints usage help if no params are given.
+## Interactive Python Shell
 
-All of the Spark samples take a `<host>` parameter that is the cluster URL
-to connect to. This can be a mesos:// or spark:// URL, or "local" to run
-locally with one thread, or "local[N]" to run locally with N threads.
+Alternatively, if you prefer Python, you can use the Python shell:
 
+    ./bin/pyspark
+    
+And run the following command, which should also return 1000:
+
+    >>> sc.parallelize(range(1000)).count()
+
+## Example Programs
+
+Spark also comes with several sample programs in the `examples` directory.
+To run one of them, use `./bin/run-example <class> [params]`. For example:
+
+    ./bin/run-example SparkPi
+
+will run the Pi example locally.
+
+You can set the MASTER environment variable when running examples to submit
+examples to a cluster. This can be a mesos:// or spark:// URL, 
+"yarn-cluster" or "yarn-client" to run on YARN, and "local" to run 
+locally with one thread, or "local[N]" to run locally with N threads. You 
+can also use an abbreviated class name if the class is in the `examples`
+package. For instance:
+
+    MASTER=spark://host:7077 ./bin/run-example SparkPi
+
+Many of the example programs print usage help if no params are given.
+
+## Running Tests
+
+Testing first requires [building Spark](#building-spark). Once Spark is built, tests
+can be run using:
+
+    ./dev/run-tests
+
+Please see the guidance on how to 
+[run all automated tests](https://cwiki.apache.org/confluence/display/SPARK/Contributing+to+Spark#ContributingtoSpark-AutomatedTesting).
 
 ## A Note About Hadoop Versions
 
 Spark uses the Hadoop core library to talk to HDFS and other Hadoop-supported
-storage systems. Because the HDFS API has changed in different versions of
+storage systems. Because the protocols have changed in different versions of
 Hadoop, you must build Spark against the same version that your cluster runs.
-You can change the version by setting the `HADOOP_VERSION` variable at the top
-of `project/SparkBuild.scala`, then rebuilding Spark.
 
+Please refer to the build documentation at
+["Specifying the Hadoop Version"](http://spark.apache.org/docs/latest/building-with-maven.html#specifying-the-hadoop-version)
+for detailed guidance on building for a particular distribution of Hadoop, including
+building for particular Hive and Hive Thriftserver distributions. See also
+["Third Party Hadoop Distributions"](http://spark.apache.org/docs/latest/hadoop-third-party-distributions.html)
+for guidance on building a Spark application that works with a particular
+distribution.
 
 ## Configuration
 
-Please refer to the "Configuration" guide in the online documentation for a
-full overview on how to configure Spark. At the minimum, you will need to
-create a `conf/spark-env.sh` script (copy `conf/spark-env.sh.template`) and
-set the following two variables:
-
-- `SCALA_HOME`: Location where Scala is installed.
-
-- `MESOS_NATIVE_LIBRARY`: Your Mesos library (only needed if you want to run
-  on Mesos). For example, this might be `/usr/local/lib/libmesos.so` on Linux.
-
-
-## Contributing to Spark
-
-Contributions via GitHub pull requests are gladly accepted from their original
-author. Along with any pull requests, please state that the contribution is
-your original work and that you license the work to the project under the
-project's open source license. Whether or not you state this explicitly, by
-submitting any copyrighted material via pull request, email, or other means
-you agree to license the material under the project's open source license and
-warrant that you have the legal authority to do so.
+Please refer to the [Configuration guide](http://spark.apache.org/docs/latest/configuration.html)
+in the online documentation for an overview on how to configure Spark.

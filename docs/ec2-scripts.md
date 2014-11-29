@@ -4,21 +4,24 @@ title: Running Spark on EC2
 ---
 
 The `spark-ec2` script, located in Spark's `ec2` directory, allows you
-to launch, manage and shut down Spark clusters on Amazon EC2. It automatically sets up Mesos, Spark and HDFS
-on the cluster for you.
-This guide describes how to use `spark-ec2` to launch clusters, how to run jobs on them, and how to shut them down.
-It assumes you've already signed up for an EC2 account on the [Amazon Web Services site](http://aws.amazon.com/).
+to launch, manage and shut down Spark clusters on Amazon EC2. It automatically
+sets up Spark, Shark and HDFS on the cluster for you. This guide describes 
+how to use `spark-ec2` to launch clusters, how to run jobs on them, and how 
+to shut them down. It assumes you've already signed up for an EC2 account 
+on the [Amazon Web Services site](http://aws.amazon.com/).
 
 `spark-ec2` is designed to manage multiple named clusters. You can
 launch a new cluster (telling the script its size and giving it a name),
-shutdown an existing cluster, or log into a cluster. Each cluster is
-identified by placing its machines into EC2 security groups whose names
-are derived from the name of the cluster. For example, a cluster named
+shutdown an existing cluster, or log into a cluster. Each cluster
+launches a set of instances, which are tagged with the cluster name,
+and placed into EC2 security groups.  If you don't specify a security
+group, the `spark-ec2` script will create security groups based on the
+cluster name you request. For example, a cluster named
 `test` will contain a master node in a security group called
 `test-master`, and a number of slave nodes in a security group called
-`test-slaves`. The `spark-ec2` script will create these security groups
-for you based on the cluster name you request. You can also use them to
-identify machines belonging to each cluster in the Amazon EC2 Console.
+`test-slaves`.  You can also specify a security group prefix to be used
+in place of the cluster name.  Machines in a cluster can be identified
+by looking for the "Name" tag of the instance in the Amazon EC2 Console.
 
 
 # Before You Start
@@ -45,6 +48,15 @@ identify machines belonging to each cluster in the Amazon EC2 Console.
     key pair, `<num-slaves>` is the number of slave nodes to launch (try
     1 at first), and `<cluster-name>` is the name to give to your
     cluster.
+
+    For example:
+
+    ```bash
+    export AWS_SECRET_ACCESS_KEY=AaBbCcDdEeFGgHhIiJjKkLlMmNnOoPpQqRrSsTtU
+export AWS_ACCESS_KEY_ID=ABCDEFG1234567890123
+./spark-ec2 --key-pair=awskey --identity-file=awskey.pem --region=us-west-1 --zone=us-west-1a --spark-version=1.1.0 launch my-spark-cluster
+    ```
+
 -   After everything launches, check that the cluster scheduler is up and sees
     all the slaves by going to its web UI, which will be printed at the end of
     the script (typically `http://<master-hostname>:8080`).
@@ -52,30 +64,34 @@ identify machines belonging to each cluster in the Amazon EC2 Console.
 You can also run `./spark-ec2 --help` to see more usage options. The
 following options are worth pointing out:
 
--   `--instance-type=<INSTANCE_TYPE>` can be used to specify an EC2
+-   `--instance-type=<instance-type>` can be used to specify an EC2
 instance type to use. For now, the script only supports 64-bit instance
 types, and the default type is `m1.large` (which has 2 cores and 7.5 GB
 RAM). Refer to the Amazon pages about [EC2 instance
 types](http://aws.amazon.com/ec2/instance-types) and [EC2
 pricing](http://aws.amazon.com/ec2/#pricing) for information about other
 instance types. 
--    `--zone=<EC2_ZONE>` can be used to specify an EC2 availability zone
+-    `--region=<ec2-region>` specifies an EC2 region in which to launch
+instances. The default region is `us-east-1`.
+-    `--zone=<ec2-zone>` can be used to specify an EC2 availability zone
 to launch instances in. Sometimes, you will get an error because there
 is not enough capacity in one zone, and you should try to launch in
-another. This happens mostly with the `m1.large` instance types;
-extra-large (both `m1.xlarge` and `c1.xlarge`) instances tend to be more
-available.
--    `--ebs-vol-size=GB` will attach an EBS volume with a given amount
+another.
+-    `--ebs-vol-size=<GB>` will attach an EBS volume with a given amount
      of space to each node so that you can have a persistent HDFS cluster
      on your nodes across cluster restarts (see below).
--    `--spot-price=PRICE` will launch the worker nodes as
+-    `--spot-price=<price>` will launch the worker nodes as
      [Spot Instances](http://aws.amazon.com/ec2/spot-instances/),
      bidding for the given maximum price (in dollars).
+-    `--spark-version=<version>` will pre-load the cluster with the
+     specified version of Spark. The `<version>` can be a version number
+     (e.g. "0.7.3") or a specific git hash. By default, a recent
+     version will be used.
 -    If one of your launches fails due to e.g. not having the right
 permissions on your private key file, you can run `launch` with the
 `--resume` option to restart the setup process on an existing cluster.
 
-# Running Jobs
+# Running Applications
 
 -   Go into the `ec2` directory in the release of Spark you downloaded.
 -   Run `./spark-ec2 -k <keypair> -i <key-file> login <cluster-name>` to
@@ -85,7 +101,7 @@ permissions on your private key file, you can run `launch` with the
 -   To deploy code or data within your cluster, you can log in and use the
     provided script `~/spark-ec2/copy-dir`, which,
     given a directory path, RSYNCs it to the same location on all the slaves.
--   If your job needs to access large datasets, the fastest way to do
+-   If your application needs to access large datasets, the fastest way to do
     that is to load them from Amazon S3 or an Amazon EBS device into an
     instance of the Hadoop Distributed File System (HDFS) on your nodes.
     The `spark-ec2` script already sets up a HDFS instance for you. It's
@@ -93,15 +109,14 @@ permissions on your private key file, you can run `launch` with the
     `bin/hadoop` script in that directory. Note that the data in this
     HDFS goes away when you stop and restart a machine.
 -   There is also a *persistent HDFS* instance in
-    `/root/presistent-hdfs` that will keep data across cluster restarts.
+    `/root/persistent-hdfs` that will keep data across cluster restarts.
     Typically each node has relatively little space of persistent data
     (about 3 GB), but you can use the `--ebs-vol-size` option to
     `spark-ec2` to attach a persistent EBS volume to each node for
     storing the persistent HDFS.
--   Finally, if you get errors while running your jobs, look at the slave's logs
-    for that job inside of the Mesos work directory (/mnt/mesos-work). You can
-    also view the status of the cluster using the Mesos web UI 
-    (`http://<master-hostname>:8080`).
+-   Finally, if you get errors while running your application, look at the slave's logs
+    for that application inside of the scheduler work directory (/root/spark/work). You can
+    also view the status of the cluster using the web UI: `http://<master-hostname>:8080`.
 
 # Configuration
 
@@ -131,33 +146,25 @@ cost you any EC2 cycles, but ***will*** continue to cost money for EBS
 storage.
 
 - To stop one of your clusters, go into the `ec2` directory and run
-`./spark-ec2 stop <cluster-name>`.
+`./spark-ec2 --region=<ec2-region> stop <cluster-name>`.
 - To restart it later, run
-`./spark-ec2 -i <key-file> start <cluster-name>`.
+`./spark-ec2 -i <key-file> --region=<ec2-region> start <cluster-name>`.
 - To ultimately destroy the cluster and stop consuming EBS space, run
-`./spark-ec2 destroy <cluster-name>` as described in the previous
+`./spark-ec2 --region=<ec2-region> destroy <cluster-name>` as described in the previous
 section.
 
 # Limitations
 
-- `spark-ec2` currently only launches machines in the US-East region of EC2.
-  It should not be hard to make it launch VMs in other zones, but you will need
-  to create your own AMIs in them.
 - Support for "cluster compute" nodes is limited -- there's no way to specify a
   locality group. However, you can launch slave nodes in your
   `<clusterName>-slaves` group manually and then use `spark-ec2 launch
   --resume` to start a cluster with them.
-- Support for spot instances is limited.
 
 If you have a patch or suggestion for one of these limitations, feel free to
 [contribute](contributing-to-spark.html) it!
 
-# Using a Newer Spark Version
-
-The Spark EC2 machine images may not come with the latest version of Spark. To use a newer version, you can run `git pull` to pull in `/root/spark` to pull in the latest version of Spark from `git`, and build it using `sbt/sbt compile`. You will also need to copy it to all the other nodes in the cluster using `~/spark-ec2/copy-dir /root/spark`.
-
 # Accessing Data in S3
 
-Spark's file interface allows it to process data in Amazon S3 using the same URI formats that are supported for Hadoop. You can specify a path in S3 as input through a URI of the form `s3n://<bucket>/path`. You will also need to set your Amazon security credentials, either by setting the environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` before your program or through `SparkContext.hadoopConfiguration`. Full instructions on S3 access using the Hadoop input libraries can be found on the [Hadoop S3 page](http://wiki.apache.org/hadoop/AmazonS3).
+Spark's file interface allows it to process data in Amazon S3 using the same URI formats that are supported for Hadoop. You can specify a path in S3 as input through a URI of the form `s3n://<bucket>/path`. To provide AWS credentials for S3 access, launch the Spark cluster with the option `--copy-aws-credentials`. Full instructions on S3 access using the Hadoop input libraries can be found on the [Hadoop S3 page](http://wiki.apache.org/hadoop/AmazonS3).
 
 In addition to using a single input file, you can also use a directory of files as input by simply giving the path to the directory.

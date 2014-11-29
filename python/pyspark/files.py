@@ -18,7 +18,11 @@
 import os
 
 
+__all__ = ['SparkFiles']
+
+
 class SparkFiles(object):
+
     """
     Resolves paths to files added through
     L{SparkContext.addFile()<pyspark.context.SparkContext.addFile>}.
@@ -52,4 +56,4 @@ class SparkFiles(object):
             return cls._root_directory
         else:
             # This will have to change if we support multiple SparkContexts:
-            return cls._sc._jvm.spark.SparkFiles.getRootDirectory()
+            return cls._sc._jvm.org.apache.spark.SparkFiles.getRootDirectory()
