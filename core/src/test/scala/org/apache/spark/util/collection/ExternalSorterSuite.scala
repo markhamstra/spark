@@ -22,7 +22,6 @@ import scala.collection.mutable.ArrayBuffer
 import org.scalatest.{PrivateMethodTester, FunSuite}
 
 import org.apache.spark._
-import org.apache.spark.SparkContext._
 
 import scala.util.Random
 
@@ -47,6 +46,8 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     val bypassMergeSort = PrivateMethod[Boolean]('bypassMergeSort)
     assert(!sorter.invokePrivate(bypassMergeSort()), "sorter bypassed merge-sort")
   }
+
+  private def hashModMod(i: Int) = (i % 65537) % 3
 
   test("empty data stream") {
     val conf = new SparkConf(false)
@@ -461,7 +462,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100000).iterator.map(i => (i / 4, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSet)}.toSet
     val expected = (0 until 3).map(p => {
-      (p, (0 until 100000).map(i => (i / 4, i)).filter(_._1 % 3 == p).toSet)
+      (p, (0 until 100000).map(i => (i / 4, i)).filter(pr => hashModMod(pr._1) == p).toSet)
     }).toSet
     assert(results === expected)
   }
@@ -477,7 +478,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100).iterator.map(i => (i / 2, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSet)}.toSet
     val expected = (0 until 3).map(p => {
-      (p, (0 until 50).map(i => (i, i * 4 + 1)).filter(_._1 % 3 == p).toSet)
+      (p, (0 until 50).map(i => (i, i * 4 + 1)).filter(pr => hashModMod(pr._1) == p).toSet)
     }).toSet
     assert(results === expected)
   }
@@ -493,7 +494,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100000).iterator.map(i => (i / 2, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSet)}.toSet
     val expected = (0 until 3).map(p => {
-      (p, (0 until 50000).map(i => (i, i * 4 + 1)).filter(_._1 % 3 == p).toSet)
+      (p, (0 until 50000).map(i => (i, i * 4 + 1)).filter(pr => hashModMod(pr._1) == p).toSet)
     }).toSet
     assert(results === expected)
   }
@@ -510,7 +511,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100000).iterator.map(i => (i / 2, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSet)}.toSet
     val expected = (0 until 3).map(p => {
-      (p, (0 until 50000).map(i => (i, i * 4 + 1)).filter(_._1 % 3 == p).toSet)
+      (p, (0 until 50000).map(i => (i, i * 4 + 1)).filter(pr => hashModMod(pr._1) == p).toSet)
     }).toSet
     assert(results === expected)
   }
@@ -527,7 +528,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100).iterator.map(i => (i, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSeq)}.toSeq
     val expected = (0 until 3).map(p => {
-      (p, (0 until 100).map(i => (i, i)).filter(_._1 % 3 == p).toSeq)
+      (p, (0 until 100).map(i => (i, i)).filter(pr => hashModMod(pr._1) == p).toSeq)
     }).toSeq
     assert(results === expected)
   }
@@ -544,7 +545,7 @@ class ExternalSorterSuite extends FunSuite with LocalSparkContext with PrivateMe
     sorter.insertAll((0 until 100000).iterator.map(i => (i, i)))
     val results = sorter.partitionedIterator.map{case (p, vs) => (p, vs.toSeq)}.toSeq
     val expected = (0 until 3).map(p => {
-      (p, (0 until 100000).map(i => (i, i)).filter(_._1 % 3 == p).toSeq)
+      (p, (0 until 100000).map(i => (i, i)).filter(pr => hashModMod(pr._1) == p).toSeq)
     }).toSeq
     assert(results === expected)
   }

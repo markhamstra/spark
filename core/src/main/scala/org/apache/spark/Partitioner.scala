@@ -80,7 +80,7 @@ class HashPartitioner(partitions: Int) extends Partitioner {
 
   def getPartition(key: Any): Int = key match {
     case null => 0
-    case _ => Utils.nonNegativeMod(key.hashCode, numPartitions)
+    case _ => Utils.nonNegativeMod(key.hashCode % 65537, numPartitions)
   }
 
   override def equals(other: Any): Boolean = other match {
