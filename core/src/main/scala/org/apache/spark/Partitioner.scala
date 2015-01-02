@@ -60,9 +60,9 @@ object Partitioner {
       return r.partitioner.get
     }
     if (rdd.context.conf.contains("spark.default.parallelism")) {
-      new HashPartitioner(rdd.context.defaultParallelism)
+      new ByteswapPartitioner(rdd.context.defaultParallelism)
     } else {
-      new HashPartitioner(bySize.head.partitions.size)
+      new ByteswapPartitioner(bySize.head.partitions.size)
     }
   }
 }
@@ -91,6 +91,18 @@ class HashPartitioner(partitions: Int) extends Partitioner {
   }
 
   override def hashCode: Int = numPartitions
+}
+
+/**
+ * A [[org.apache.spark.Partitioner]] that implements hash-based partitioning using
+ * Java's `Object.hashCode`.  In order to spread-out hashCodes that are divisible by
+ * `numPartitions`, `byteswap32` is applied to the hashCodes before modding by `numPartitions`.
+ */
+class ByteswapPartitioner(partitions: Int) extends HashPartitioner(partitions) {
+  override def getPartition(key: Any): Int = key match {
+    case null => 0
+    case _ => Utils.nonNegativeMod(byteswap32(key.hashCode), numPartitions)
+  }
 }
 
 /**
