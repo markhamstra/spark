@@ -55,14 +55,23 @@ object Partitioner {
    * We use two method parameters (rdd, others) to enforce callers passing at least 1 RDD.
    */
   def defaultPartitioner(rdd: RDD[_], others: RDD[_]*): Partitioner = {
+    val shortPartitionerNames = Map(
+      "hash" -> "org.apache.spark.HashPartitioner",
+      "byteswap" -> "org.apache.spark.ByteswapPartitioner"
+    )
+    val defaultPartitionerName = rdd.conf.get("spark.default.partitioner", "hash")
+    val className =
+      shortPartitionerNames.getOrElse(defaultPartitionerName.toLowerCase, defaultPartitionerName)
+    val ctor = Class.forName(className, true, Utils.getContextOrSparkClassLoader)
+      .getConstructor(classOf[Int])
     val bySize = (Seq(rdd) ++ others).sortBy(_.partitions.size).reverse
     for (r <- bySize if r.partitioner.isDefined) {
       return r.partitioner.get
     }
     if (rdd.context.conf.contains("spark.default.parallelism")) {
-      new ByteswapPartitioner(rdd.context.defaultParallelism)
+      ctor.newInstance(rdd.context.defaultParallelism: java.lang.Integer).asInstanceOf[Partitioner]
     } else {
-      new ByteswapPartitioner(bySize.head.partitions.size)
+      ctor.newInstance(bySize.head.partitions.size: java.lang.Integer).asInstanceOf[Partitioner]
     }
   }
 }

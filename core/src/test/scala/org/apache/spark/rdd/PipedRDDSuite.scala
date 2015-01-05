@@ -32,6 +32,16 @@ import scala.util.Try
 
 class PipedRDDSuite extends FunSuite with SharedSparkContext {
 
+  override def beforeAll() {
+    System.setProperty("spark.default.partitioner", "hash")
+    super.beforeAll()
+  }
+
+  override def afterAll() {
+    System.clearProperty("spark.default.partitioner")
+    super.afterAll()
+  }
+
   test("basic pipe") {
     if (testCommandAvailable("cat")) {
       val nums = sc.makeRDD(Array(1, 2, 3, 4), 2)
