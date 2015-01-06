@@ -618,6 +618,17 @@ Apart from these, the following properties are also available, and may be useful
   </td>
 </tr>
 <tr>
+  <td><code>spark.default.partitioner</code></td>
+  <td>hash</td>
+  <td>
+    Implementation to use for partitioning key-value data pairs. There are two implementations
+    available:<code>hash</code> and <code>byteswap</code>.  Both are based on the <code>hashCode</code> of
+    the keys <code>mod</code> the number of partitions, but the <code>byteswap</code> partitioner also
+    applies <code>byteswap32</code> to the hash codes, which helps guarantee that all partitions are used
+    even when the hash codes are divisible by a factor of the number of partitions.
+  </td>
+</tr>
+<tr>
   <td><code>spark.broadcast.factory</code></td>
   <td>org.apache.spark.broadcast.<br />TorrentBroadcastFactory</td>
   <td>
