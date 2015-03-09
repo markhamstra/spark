@@ -1582,6 +1582,34 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   }
 
   /**
+   * :: Experimental ::
+   * Submit a job for execution, explicitly pass in the task context
+   * with the partition job and return a FutureJob holding the result.
+   */
+  @Experimental
+  def submitJobWithTaskContext[T, U, R](
+      rdd: RDD[T],
+      processPartition: (TaskContext, Iterator[T]) => U,
+      partitions: Seq[Int],
+      resultHandler: (Int, U) => Unit,
+      resultFunc: => R): SimpleFutureAction[R] =
+  {
+    val cleanF = clean(processPartition)
+    val callSite = getCallSite
+
+    val waiter = dagScheduler.submitJob(
+      rdd,
+      (context: TaskContext, iter: Iterator[T]) => cleanF(context, iter),
+      partitions,
+      callSite,
+      allowLocal = false,
+      resultHandler,
+      localProperties.get)
+
+    new SimpleFutureAction(waiter, resultFunc)
+  }
+
+  /**
    * Cancel active jobs for the specified group. See [[org.apache.spark.SparkContext.setJobGroup]]
    * for more information.
    */
