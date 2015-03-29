@@ -31,7 +31,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.{DefaultOptimizer, Optimizer}
-import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, NoRelation}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, OneRowRelation}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.catalyst.{ScalaReflection, expressions}
 import org.apache.spark.sql.execution.{Filter, _}
@@ -165,7 +165,7 @@ class SQLContext(@transient val sparkContext: SparkContext)
    */
   @Experimental
   @transient
-  lazy val emptyDataFrame = DataFrame(this, NoRelation)
+  lazy val emptyDataFrame: DataFrame = createDataFrame(sparkContext.emptyRDD[Row], StructType(Nil))
 
   /**
    * A collection of methods for registering user-defined functions (UDF).
@@ -229,8 +229,8 @@ class SQLContext(@transient val sparkContext: SparkContext)
    * common Scala objects into [[DataFrame]]s.
    *
    * {{{
-   *   val sqlContext = new SQLContext
-   *   import sqlContext._
+   *   val sqlContext = new SQLContext(sc)
+   *   import sqlContext.implicits._
    * }}}
    *
    * @group basic
@@ -975,9 +975,9 @@ class SQLContext(@transient val sparkContext: SparkContext)
 
     val sqlContext: SQLContext = self
 
-    def codegenEnabled = self.conf.codegenEnabled
+    def codegenEnabled: Boolean = self.conf.codegenEnabled
 
-    def numPartitions = self.conf.numShufflePartitions
+    def numPartitions: Int = self.conf.numShufflePartitions
 
     def strategies: Seq[Strategy] =
       experimental.extraStrategies ++ (
@@ -1070,7 +1070,7 @@ class SQLContext(@transient val sparkContext: SparkContext)
 
     lazy val analyzed: LogicalPlan = analyzer(logical)
     lazy val withCachedData: LogicalPlan = {
-      assertAnalyzed
+      assertAnalyzed()
       cacheManager.useCachedData(analyzed)
     }
     lazy val optimizedPlan: LogicalPlan = optimizer(withCachedData)
