@@ -21,7 +21,7 @@ import java.util
 
 import scala.reflect.{classTag, ClassTag}
 
-private[spark] object CollectionsUtils {
+object CollectionsUtils {
   def makeBinarySearch[K : Ordering : ClassTag] : (Array[K], K) => Int = {
     // For primitive keys, we can use the natural ordering. Otherwise, use the Ordering comparator.
     classTag[K] match {

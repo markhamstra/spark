@@ -20,7 +20,7 @@ package org.apache.spark.util.random
 import scala.reflect.ClassTag
 import scala.util.Random
 
-private[spark] object SamplingUtils {
+object SamplingUtils {
 
   /**
    * Reservoir sampling implementation that also returns the input size.

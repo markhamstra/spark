@@ -110,7 +110,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   // We allow partitions = 0, which happens when sorting an empty RDD under the default settings.
   require(partitions >= 0, s"Number of partitions cannot be negative but found $partitions.")
 
-  private var ordering = implicitly[Ordering[K]]
+  protected var ordering = implicitly[Ordering[K]]
 
   // An array of upper bounds for the first (partitions - 1) partitions
   private var rangeBounds: Array[K] = {
@@ -156,7 +156,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
 
   def numPartitions = rangeBounds.length + 1
 
-  private var binarySearch: ((Array[K], K) => Int) = CollectionsUtils.makeBinarySearch[K]
+  protected var binarySearch: ((Array[K], K) => Int) = CollectionsUtils.makeBinarySearch[K]
 
   def getPartition(key: Any): Int = {
     val k = key.asInstanceOf[K]
@@ -204,7 +204,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   }
 
   @throws(classOf[IOException])
-  private def writeObject(out: ObjectOutputStream): Unit = Utils.tryOrIOException {
+  protected def writeObject(out: ObjectOutputStream): Unit = Utils.tryOrIOException {
     val sfactory = SparkEnv.get.serializer
     sfactory match {
       case js: JavaSerializer => out.defaultWriteObject()
@@ -222,7 +222,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   }
 
   @throws(classOf[IOException])
-  private def readObject(in: ObjectInputStream): Unit = Utils.tryOrIOException {
+  protected def readObject(in: ObjectInputStream): Unit = Utils.tryOrIOException {
     val sfactory = SparkEnv.get.serializer
     sfactory match {
       case js: JavaSerializer => in.defaultReadObject()
@@ -240,7 +240,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   }
 }
 
-private[spark] object RangePartitioner {
+object RangePartitioner {
 
   /**
    * Sketches the input RDD via reservoir sampling on each partition.
