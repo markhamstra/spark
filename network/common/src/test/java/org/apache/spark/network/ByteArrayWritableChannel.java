@@ -15,20 +15,41 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst.analysis
+package org.apache.spark.network;
 
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 
-/**
- * A trait that should be mixed into query operators where an single instance might appear multiple
- * times in a logical query plan.  It is invalid to have multiple copies of the same attribute
- * produced by distinct operators in a query tree as this breaks the guarantee that expression
- * ids, which are used to differentiate attributes, are unique.
- *
- * During analysis, operators that include this trait may be asked to produce a new version
- * of itself with globally unique expression ids.
- */
-trait MultiInstanceRelation {
-  def newInstance(): LogicalPlan
+public class ByteArrayWritableChannel implements WritableByteChannel {
+
+  private final byte[] data;
+  private int offset;
+
+  public ByteArrayWritableChannel(int size) {
+    this.data = new byte[size];
+    this.offset = 0;
+  }
+
+  public byte[] getData() {
+    return data;
+  }
+
+  @Override
+  public int write(ByteBuffer src) {
+    int available = src.remaining();
+    src.get(data, offset, available);
+    offset += available;
+    return available;
+  }
+
+  @Override
+  public void close() {
+
+  }
+
+  @Override
+  public boolean isOpen() {
+    return true;
+  }
+
 }

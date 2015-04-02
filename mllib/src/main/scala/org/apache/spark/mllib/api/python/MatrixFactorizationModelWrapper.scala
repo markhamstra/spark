@@ -15,20 +15,26 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst.analysis
+package org.apache.spark.mllib.api.python
 
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.api.java.JavaRDD
+import org.apache.spark.mllib.recommendation.{MatrixFactorizationModel, Rating}
+import org.apache.spark.rdd.RDD
 
 /**
- * A trait that should be mixed into query operators where an single instance might appear multiple
- * times in a logical query plan.  It is invalid to have multiple copies of the same attribute
- * produced by distinct operators in a query tree as this breaks the guarantee that expression
- * ids, which are used to differentiate attributes, are unique.
- *
- * During analysis, operators that include this trait may be asked to produce a new version
- * of itself with globally unique expression ids.
+ * A Wrapper of MatrixFactorizationModel to provide helper method for Python.
  */
-trait MultiInstanceRelation {
-  def newInstance(): LogicalPlan
+private[python] class MatrixFactorizationModelWrapper(model: MatrixFactorizationModel)
+  extends MatrixFactorizationModel(model.rank, model.userFeatures, model.productFeatures) {
+
+  def predict(userAndProducts: JavaRDD[Array[Any]]): RDD[Rating] =
+    predict(SerDe.asTupleRDD(userAndProducts.rdd))
+
+  def getUserFeatures: RDD[Array[Any]] = {
+    SerDe.fromTuple2RDD(userFeatures.asInstanceOf[RDD[(Any, Any)]])
+  }
+
+  def getProductFeatures: RDD[Array[Any]] = {
+    SerDe.fromTuple2RDD(productFeatures.asInstanceOf[RDD[(Any, Any)]])
+  }
 }
