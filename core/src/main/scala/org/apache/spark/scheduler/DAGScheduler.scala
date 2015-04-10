@@ -738,8 +738,17 @@ class DAGScheduler(
     if (finalStage != null) {
       val job = new ActiveJob(jobId, finalStage, func, partitions, callSite, listener, properties)
       clearCacheLocs()
-      logInfo("Got job %s (%s) with %d output partitions (allowLocal=%s)".format(
-        job.jobId, callSite.shortForm, partitions.length, allowLocal))
+      val jobGroupSuffix = for {
+        properties <- Option(job.properties)
+        jobGroup <- Option(properties.get(SparkContext.SPARK_JOB_GROUP_ID)).map(_.toString)
+      } yield s"($jobGroup)"
+      logInfo(
+        "Got job %s (%s) with %d output partitions (allowLocal=%s)"
+          .format(
+            job.jobId + jobGroupSuffix.getOrElse(""),
+            callSite.shortForm,
+            partitions.length,
+            allowLocal))
       logInfo("Final stage: " + finalStage + "(" + finalStage.name + ")")
       logInfo("Parents of final stage: " + finalStage.parents)
       logInfo("Missing parents: " + getMissingParentStages(finalStage))
