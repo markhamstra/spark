@@ -1,4 +1,5 @@
 target
+cache
 .gitignore
 .gitattributes
 .project
@@ -18,6 +19,7 @@ fairscheduler.xml.template
 spark-defaults.conf.template
 log4j.properties
 log4j.properties.template
+metrics.properties
 metrics.properties.template
 slaves
 slaves.template
@@ -28,6 +30,9 @@ log4j-defaults.properties
 bootstrap-tooltip.js
 jquery-1.11.1.min.js
 sorttable.js
+vis.min.js
+vis.min.css
+vis.map
 .*avsc
 .*txt
 .*json
@@ -65,3 +70,5 @@ logs
 .*scalastyle-output.xml
 .*dependency-reduced-pom.xml
 known_translations
+DESCRIPTION
+NAMESPACE

@@ -17,8 +17,10 @@
 
 package org.apache.spark.ui.jobs
 
+import java.util.Date
+
 import scala.collection.mutable
-import scala.xml.{NodeSeq, Node}
+import scala.xml.{NodeSeq, Node, Unparsed}
 
 import javax.servlet.http.HttpServletRequest
 
@@ -30,9 +32,126 @@ import org.apache.spark.ui.{UIUtils, WebUIPage}
 private[ui] class JobPage(parent: JobsTab) extends WebUIPage("job") {
   private val listener = parent.listener
 
+  private def  jobTimelineView(stages: Seq[StageInfo]): Seq[Node] = {
+    val stageEventJsonAsStrSeq = stages.map { stage =>
+      val stageId = stage.stageId
+      val attemptId = stage.attemptId
+      val status = {
+        if (stage.completionTime.isDefined) {
+          if (stage.failureReason.isDefined) {
+            "failed"
+          } else {
+            "succeeded"
+          }
+        } else {
+          "running"
+        }
+      }
+
+      val submissionTime = stage.submissionTime.get
+      val completionTime = stage.completionTime.getOrElse(System.currentTimeMillis())
+
+      s"""
+         |{
+         |  'className': 'stage job-timeline-object ${status}',
+         |  'group': 'stages',
+         |  'start': new Date(${submissionTime}),
+         |  'end': new Date(${completionTime}),
+         |  'content': '<div class="job-timeline-content">Stage ${stageId}.${attemptId}</div>',
+         |  'title': 'Stage ${stageId}.${attemptId}\\nStatus: ${status.toUpperCase}\\n' +
+         |    'Submission Time: ${UIUtils.formatDate(new Date(submissionTime))}' +
+         |    '${
+                 if (status != "running") {
+                   s"""\\nCompletion Time: ${UIUtils.formatDate(new Date(completionTime))}"""
+                 } else {
+                   ""
+                 }
+               }'
+         |}
+       """.stripMargin
+    }
+
+    val executorsJsonAsStrSeq =
+      (listener.executorIdToAddedTime ++
+        listener.executorIdToRemovedTimeAndReason).map { event =>
+        val (executorId: String, status: String, time: Long, reason: Option[String]) =
+          event match {
+            case (executorId, (removedTime, reason)) =>
+              (executorId, "removed", removedTime, Some(reason))
+            case (executorId, addedTime) =>
+              (executorId, "added", addedTime, None)
+          }
+        s"""
+           |{
+           |  'className': 'executor ${status}',
+           |  'group': 'executors',
+           |  'start': new Date(${time}),
+           |  'content': '<div>Executor ${executorId} ${status}</div>',
+           |  'title': '${if (status == "added") "Added" else "Removed"} ' +
+           |    'at ${UIUtils.formatDate(new Date(time))}' +
+           |    '${if (reason.isDefined) s"""\\nReason: ${reason.get}""" else ""}'
+           |}
+         """.stripMargin
+      }
+
+    val executorsLegend =
+      <div class="legend-area"><svg width="200px" height="55px">
+        <rect x="5px" y="5px" width="20px" height="15px"
+          rx="2px" ry="2px" stroke="#97B0F8" fill="#D5DDF6"></rect>
+        <text x="35px" y="17px">Executor Added</text>
+        <rect x="5px" y="35px" width="20px" height="15px"
+          rx="2px" ry="2px" stroke="#97B0F8" fill="#EBCA59"></rect>
+        <text x="35px" y="47px">Executor Removed</text>
+      </svg></div>.toString.filter(_ != '\n')
+
+    val stagesLegend =
+      <div class="legend-area"><svg width="200px" height="85px">
+        <rect x="5px" y="5px" width="20px" height="15px"
+          rx="2px" ry="2px" stroke="#97B0F8" fill="#D5DDF6"></rect>
+        <text x="35px" y="17px">Completed Stage </text>
+        <rect x="5px" y="35px" width="20px" height="15px"
+          rx="2px" ry="2px" stroke="#97B0F8" fill="#FF5475"></rect>
+        <text x="35px" y="47px">Failed Stage</text>
+        <rect x="5px" y="65px" width="20px" height="15px"
+          rx="2px" ry="2px" stroke="#97B0F8" fill="#FDFFCA"></rect>
+        <text x="35px" y="77px">Active Stage</text>
+      </svg></div>.toString.filter(_ != '\n')
+
+    val groupJsonArrayAsStr =
+      s"""
+          |[
+          |  {
+          |    'id': 'executors',
+          |    'content': '<div>Executors</div>${executorsLegend}',
+          |  },
+          |  {
+          |    'id': 'stages',
+          |    'content': '<div>Stages</div>${stagesLegend}',
+          |  }
+          |]
+        """.stripMargin
+
+    val eventArrayAsStr =
+      (stageEventJsonAsStrSeq ++ executorsJsonAsStrSeq).mkString("[", ",", "]")
+
+    <div class="control-panel">
+      <div id="job-timeline-zoom-lock">
+        <input type="checkbox" checked="checked"></input>
+        <span>Zoom Lock</span>
+      </div>
+    </div> ++
+    <div id="job-timeline"></div> ++
+    <script type="text/javascript">
+      {Unparsed(s"drawJobTimeline(${groupJsonArrayAsStr}, ${eventArrayAsStr});")}
+    </script>
+  }
+
   def render(request: HttpServletRequest): Seq[Node] = {
     listener.synchronized {
-      val jobId = request.getParameter("id").toInt
+      val parameterId = request.getParameter("id")
+      require(parameterId != null && parameterId.nonEmpty, "Missing id parameter")
+
+      val jobId = parameterId.toInt
       val jobDataOption = listener.jobIdToData.get(jobId)
       if (jobDataOption.isEmpty) {
         val content =
@@ -151,6 +270,10 @@ private[ui] class JobPage(parent: JobsTab) extends WebUIPage("job") {
         </div>
 
       var content = summary
+
+      content ++= <h4>Events on Job Timeline</h4> ++
+        jobTimelineView(activeStages ++ completedStages ++ failedStages)
+
       if (shouldShowActiveStages) {
         content ++= <h4 id="active">Active Stages ({activeStages.size})</h4> ++
           activeStagesTable.toNodeSeq
