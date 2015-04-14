@@ -73,39 +73,6 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
       Option(jobEventJsonAsStr)
     }
 
-    val executorEventJsonAsStrSeq =
-      (listener.executorIdToAddedTime ++
-        listener.executorIdToRemovedTimeAndReason).map { event =>
-        val (executorId: String, status: String, time: Long, reason: Option[String]) =
-          event match {
-            case (executorId, (removedTime, reason)) =>
-              (executorId, "removed", removedTime, Some(reason))
-            case (executorId, addedTime) =>
-              (executorId, "added", addedTime, None)
-          }
-        s"""
-           |{
-           |  'className': 'executor ${status}',
-           |  'group': 'executors',
-           |  'start': new Date(${time}),
-           |  'content': '<div>Executor ${executorId} ${status}</div>',
-           |  'title': '${if (status == "added") "Added" else "Removed"} ' +
-           |    'at ${UIUtils.formatDate(new Date(time))}' +
-           |    '${if (reason.isDefined) s"""\\nReason: ${reason.get}""" else ""}'
-           |}
-         """.stripMargin
-      }
-
-    val executorsLegend =
-      <div class="legend-area"><svg width="200px" height="55px">
-        <rect x="5px" y="5px" width="20px" height="15px"
-          rx="2px" ry="2px" stroke="#97B0F8" fill="#D5DDF6"></rect>
-        <text x="35px" y="17px">Executor Added</text>
-        <rect x="5px" y="35px" width="20px" height="15px"
-          rx="2px" ry="2px" stroke="#97B0F8" fill="#EBCA59"></rect>
-        <text x="35px" y="47px">Executor Removed</text>
-      </svg></div>.toString.filter(_ != '\n')
-
     val jobsLegend =
       <div class="legend-area"><svg width="200px" height="85px">
         <rect x="5px" y="5px" width="20px" height="15px"
@@ -123,18 +90,13 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
       s"""
           |[
           |  {
-          |    'id': 'executors',
-          |    'content': '<div>Executors</div>${executorsLegend}',
-          |  },
-          |  {
           |    'id': 'jobs',
           |    'content': '<div>Jobs</div>${jobsLegend}',
           |  }
           |]
         """.stripMargin
-
     val eventArrayAsStr =
-      (jobEventJsonAsStrSeq ++ executorEventJsonAsStrSeq).mkString("[", ",", "]")
+      jobEventJsonAsStrSeq.mkString("[", ",", "]")
 
     <div class="control-panel">
       <div id="application-timeline-zoom-lock">
