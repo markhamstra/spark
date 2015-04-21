@@ -1241,13 +1241,13 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
       writer.commit()
     }
 
-
+    lazy val result = writer.commitJob()
     self.context.submitJobWithTaskContext(
       self,
       writeToFile,
       0 until self.partitions.size,
       (_, _: Unit) => {},
-      { writer.commitJob() }
+      { result }
     )
   }
 
@@ -1336,12 +1336,13 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     val jobCommitter = jobFormat.getOutputCommitter(jobTaskContext)
     jobCommitter.setupJob(jobTaskContext)
 
+    lazy val result = jobCommitter.commitJob(jobTaskContext)
     self.context.submitJobWithTaskContext(
       self,
       writeShard,
       0 until self.partitions.size,
       (_, _:Int) => {},
-      { jobCommitter.commitJob(jobTaskContext) }
+      { result }
     )
   }
 
