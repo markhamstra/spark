@@ -30,6 +30,7 @@ import org.scalatest._
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.concurrent.Timeouts._
 
+import org.apache.spark.network.netty.NettyBlockTransferService
 import org.apache.spark.rpc.RpcEnv
 import org.apache.spark._
 import org.apache.spark.executor.DataReadMethod
@@ -44,7 +45,7 @@ import org.apache.spark.util._
 class BlockManagerSuite extends SparkFunSuite with Matchers with BeforeAndAfterEach
   with PrivateMethodTester with ResetSystemProperties {
 
-  private val conf = new SparkConf(false)
+  private val conf = new SparkConf(false).set("spark.app.id", "test")
   var store: BlockManager = null
   var store2: BlockManager = null
   var store3: BlockManager = null
@@ -837,7 +838,7 @@ class BlockManagerSuite extends SparkFunSuite with Matchers with BeforeAndAfterE
 
     // Make sure get a1 doesn't hang and returns None.
     failAfter(1 second) {
-      assert(store.getSingle("a1") == None, "a1 should not be in store")
+      assert(store.getSingle("a1").isEmpty, "a1 should not be in store")
     }
   }
 
