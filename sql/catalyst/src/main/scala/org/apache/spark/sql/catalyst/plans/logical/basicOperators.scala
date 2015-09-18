@@ -88,8 +88,10 @@ case class Filter(condition: Expression, child: LogicalPlan) extends UnaryNode {
 }
 
 case class Union(left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
-  // TODO: These aren't really the same attributes as nullability etc might change.
-  override def output: Seq[Attribute] = left.output
+  override def output: Seq[Attribute] =
+    left.output.zip(right.output).map { case (leftAttr, rightAttr) =>
+      leftAttr.withNullability(leftAttr.nullable || rightAttr.nullable)
+    }
 
   override lazy val resolved: Boolean =
     childrenResolved &&

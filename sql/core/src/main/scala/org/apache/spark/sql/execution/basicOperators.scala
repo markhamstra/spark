@@ -97,8 +97,13 @@ case class Sample(
  */
 @DeveloperApi
 case class Union(children: Seq[SparkPlan]) extends SparkPlan {
-  // TODO: attributes output by union should be distinct for nullability purposes
-  override def output: Seq[Attribute] = children.head.output
+  override def output: Seq[Attribute] = {
+    children.tail.foldLeft(children.head.output) { case (currentOutput, child) =>
+      currentOutput.zip(child.output).map { case (a1, a2) =>
+        a1.withNullability(a1.nullable || a2.nullable)
+      }
+    }
+  }
   protected override def doExecute(): RDD[Row] = sparkContext.union(children.map(_.execute()))
 }
 
