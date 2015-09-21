@@ -1371,14 +1371,7 @@
         </plugin>
 	<plugin>
           <artifactId>maven-release-plugin</artifactId>
-          <version>2.4.2</version>
-          <dependencies>
-            <dependency>
-              <groupId>org.apache.maven.scm</groupId>
-              <artifactId>maven-scm-provider-gitexe</artifactId>
-              <version>1.10-candidate-scm-740-csd</version>
-            </dependency>
-          </dependencies>
+          <version>2.5.2</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
