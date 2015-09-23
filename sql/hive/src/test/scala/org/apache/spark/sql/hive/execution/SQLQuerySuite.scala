@@ -265,7 +265,7 @@ class SQLQuerySuite extends QueryTest with SQLTestUtils {
     def checkRelation(tableName: String, isDataSourceParquet: Boolean): Unit = {
       val relation = EliminateSubQueries(catalog.lookupRelation(Seq(tableName)))
       relation match {
-        case LogicalRelation(r: ParquetRelation) =>
+        case LogicalRelation(r: ParquetRelation, _) =>
           if (!isDataSourceParquet) {
             fail(
               s"${classOf[MetastoreRelation].getCanonicalName} is expected, but found " +
@@ -1225,5 +1225,27 @@ class SQLQuerySuite extends QueryTest with SQLTestUtils {
       """.stripMargin)
 
     checkAnswer(df, (0 until 5).map(i => Row(i + "#", i + "#")))
+  }
+
+  test("SPARK-10741: Sort on Aggregate using parquet") {
+    withTable("test") {
+      sql("CREATE TABLE test(c1 STRING, c2 INT) STORED AS PARQUET")
+
+      checkAnswer(sql(
+        """
+          |SELECT c1, AVG(c2) AS c_avg
+          |FROM test
+          |GROUP BY c1
+          |HAVING (AVG(c2) > 5) ORDER BY c1
+        """.stripMargin), Nil)
+
+      checkAnswer(sql(
+        """
+          |SELECT c1, AVG(c2) AS c_avg
+          |FROM test
+          |GROUP BY c1
+          |ORDER BY AVG(c2)
+        """.stripMargin), Nil)
+    }
   }
 }
