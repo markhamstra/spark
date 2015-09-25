@@ -49,19 +49,39 @@ class DAGSchedulerEventProcessLoopTester(dagScheduler: DAGScheduler)
  * An RDD for passing to DAGScheduler. These RDDs will use the dependencies and
  * preferredLocations (if any) that are passed to them. They are deliberately not executable
  * so we can test that DAGScheduler does not try to execute RDDs locally.
+ *
+ * Optionally, one can pass in a list of locations to use as preferred locations for each task,
+ * and a MapOutputTrackerMaster to enable reduce task locality. We pass the tracker separately
+ * because, in this test suite, it won't be the same as sc.env.mapOutputTracker.
  */
 class MyRDD(
     sc: SparkContext,
     numPartitions: Int,
     dependencies: List[Dependency[_]],
-    locations: Seq[Seq[String]] = Nil) extends RDD[(Int, Int)](sc, dependencies) with Serializable {
+    locations: Seq[Seq[String]] = Nil,
+    @transient tracker: MapOutputTrackerMaster = null)
+  extends RDD[(Int, Int)](sc, dependencies) with Serializable {
+
   override def compute(split: Partition, context: TaskContext): Iterator[(Int, Int)] =
     throw new RuntimeException("should not be reached")
+
   override def getPartitions: Array[Partition] = (0 until numPartitions).map(i => new Partition {
     override def index: Int = i
   }).toArray
-  override def getPreferredLocations(split: Partition): Seq[String] =
-    if (locations.isDefinedAt(split.index)) locations(split.index) else Nil
+
+  override def getPreferredLocations(partition: Partition): Seq[String] = {
+    if (locations.isDefinedAt(partition.index)) {
+      locations(partition.index)
+    } else if (tracker != null && dependencies.size == 1 &&
+        dependencies(0).isInstanceOf[ShuffleDependency[_, _, _]]) {
+      // If we have only one shuffle dependency, use the same code path as ShuffledRDD for locality
+      val dep = dependencies(0).asInstanceOf[ShuffleDependency[_, _, _]]
+      tracker.getPreferredLocationsForShuffle(dep, partition.index)
+    } else {
+      Nil
+    }
+  }
+
   override def toString: String = "DAGSchedulerSuiteRDD " + id
 }
 
@@ -342,7 +362,8 @@ class DAGSchedulerSuite
    */
   test("getMissingParentStages should consider all ancestor RDDs' cache statuses") {
     val rddA = new MyRDD(sc, 1, Nil)
-    val rddB = new MyRDD(sc, 1, List(new ShuffleDependency(rddA, null)))
+    val rddB = new MyRDD(sc, 1, List(new ShuffleDependency(rddA, new HashPartitioner(1))),
+      tracker = mapOutputTracker)
     val rddC = new MyRDD(sc, 1, List(new OneToOneDependency(rddB))).cache()
     val rddD = new MyRDD(sc, 1, List(new OneToOneDependency(rddC)))
     cacheLocations(rddC.id -> 0) =
@@ -449,9 +470,9 @@ class DAGSchedulerSuite
 
   test("run trivial shuffle") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(1))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0))
     complete(taskSets(0), Seq(
         (Success, makeMapStatus("hostA", 1)),
@@ -465,9 +486,9 @@ class DAGSchedulerSuite
 
   test("run trivial shuffle with fetch failure") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
     complete(taskSets(0), Seq(
         (Success, makeMapStatus("hostA", reduceRdd.partitions.length)),
@@ -490,11 +511,283 @@ class DAGSchedulerSuite
     assertDataStructuresEmpty()
   }
 
+  // Helper function to validate state when creating tests for task failures
+    private def checkStageId(stageId: Int, attempt: Int, stageAttempt: TaskSet) {
+      assert(stageAttempt.stageId === stageId)
+      assert(stageAttempt.stageAttemptId == attempt)
+    }
+
+  // Helper functions to extract commonly used code in Fetch Failure test cases
+  private def setupStageAbortTest(sc: SparkContext) {
+    sc.listenerBus.addListener(new EndListener())
+    ended = false
+    jobResult = null
+  }
+
+  // Create a new Listener to confirm that the listenerBus sees the JobEnd message
+  // when we abort the stage. This message will also be consumed by the EventLoggingListener
+  // so this will propagate up to the user.
+  var ended = false
+  var jobResult : JobResult = null
+
+  class EndListener extends SparkListener {
+    override def onJobEnd(jobEnd: SparkListenerJobEnd): Unit = {
+      jobResult = jobEnd.jobResult
+      ended = true
+    }
+  }
+
+  /**
+   * Common code to get the next stage attempt, confirm it's the one we expect, and complete it
+   * successfully.
+   *
+   * @param stageId - The current stageId
+   * @param attemptIdx - The current attempt count
+   * @param numShufflePartitions - The number of partitions in the next stage
+   */
+  private def completeShuffleMapStageSuccessfully(
+      stageId: Int,
+      attemptIdx: Int,
+      numShufflePartitions: Int): Unit = {
+    val stageAttempt = taskSets.last
+    checkStageId(stageId, attemptIdx, stageAttempt)
+    complete(stageAttempt, stageAttempt.tasks.zipWithIndex.map {
+      case (task, idx) =>
+        (Success, makeMapStatus("host" + ('A' + idx).toChar, numShufflePartitions))
+    }.toSeq)
+  }
+
+  /**
+   * Common code to get the next stage attempt, confirm it's the one we expect, and complete it
+   * with all FetchFailure.
+   *
+   * @param stageId - The current stageId
+   * @param attemptIdx - The current attempt count
+   * @param shuffleDep - The shuffle dependency of the stage with a fetch failure
+   */
+  private def completeNextStageWithFetchFailure(
+      stageId: Int,
+      attemptIdx: Int,
+      shuffleDep: ShuffleDependency[_, _, _]): Unit = {
+    val stageAttempt = taskSets.last
+    checkStageId(stageId, attemptIdx, stageAttempt)
+    complete(stageAttempt, stageAttempt.tasks.zipWithIndex.map { case (task, idx) =>
+      (FetchFailed(makeBlockManagerId("hostA"), shuffleDep.shuffleId, 0, idx, "ignored"), null)
+    }.toSeq)
+  }
+
+  /**
+   * Common code to get the next result stage attempt, confirm it's the one we expect, and
+   * complete it with a success where we return 42.
+   *
+   * @param stageId - The current stageId
+   * @param attemptIdx - The current attempt count
+   */
+  private def completeNextResultStageWithSuccess(stageId: Int, attemptIdx: Int): Unit = {
+    val stageAttempt = taskSets.last
+    checkStageId(stageId, attemptIdx, stageAttempt)
+    assert(scheduler.stageIdToStage(stageId).isInstanceOf[ResultStage])
+    complete(stageAttempt, stageAttempt.tasks.zipWithIndex.map(_ => (Success, 42)).toSeq)
+  }
+
+  /**
+   * In this test, we simulate a job where many tasks in the same stage fail. We want to show
+   * that many fetch failures inside a single stage attempt do not trigger an abort
+   * on their own, but only when there are enough failing stage attempts.
+   */
+  test("Single stage fetch failure should not abort the stage.") {
+    setupStageAbortTest(sc)
+
+    val parts = 8
+    val shuffleMapRdd = new MyRDD(sc, parts, Nil)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(parts))
+    val reduceRdd = new MyRDD(sc, parts, List(shuffleDep), tracker = mapOutputTracker)
+    submit(reduceRdd, (0 until parts).toArray)
+
+    completeShuffleMapStageSuccessfully(0, 0, numShufflePartitions = parts)
+
+    completeNextStageWithFetchFailure(1, 0, shuffleDep)
+
+    // Resubmit and confirm that now all is well
+    scheduler.resubmitFailedStages()
+
+    assert(scheduler.runningStages.nonEmpty)
+    assert(!ended)
+
+    // Complete stage 0 and then stage 1 with a "42"
+    completeShuffleMapStageSuccessfully(0, 1, numShufflePartitions = parts)
+    completeNextResultStageWithSuccess(1, 1)
+
+    // Confirm job finished succesfully
+    sc.listenerBus.waitUntilEmpty(1000)
+    assert(ended === true)
+    assert(results === (0 until parts).map { idx => idx -> 42 }.toMap)
+    assertDataStructuresEmpty()
+  }
+
+  /**
+   * In this test we simulate a job failure where the first stage completes successfully and
+   * the second stage fails due to a fetch failure. Multiple successive fetch failures of a stage
+   * trigger an overall job abort to avoid endless retries.
+   */
+  test("Multiple consecutive stage fetch failures should lead to job being aborted.") {
+    setupStageAbortTest(sc)
+
+    val shuffleMapRdd = new MyRDD(sc, 2, Nil)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
+    submit(reduceRdd, Array(0, 1))
+
+    for (attempt <- 0 until Stage.MAX_CONSECUTIVE_FETCH_FAILURES) {
+      // Complete all the tasks for the current attempt of stage 0 successfully
+      completeShuffleMapStageSuccessfully(0, attempt, numShufflePartitions = 2)
+
+      // Now we should have a new taskSet, for a new attempt of stage 1.
+      // Fail all these tasks with FetchFailure
+      completeNextStageWithFetchFailure(1, attempt, shuffleDep)
+
+      // this will trigger a resubmission of stage 0, since we've lost some of its
+      // map output, for the next iteration through the loop
+      scheduler.resubmitFailedStages()
+
+      if (attempt < Stage.MAX_CONSECUTIVE_FETCH_FAILURES - 1) {
+        assert(scheduler.runningStages.nonEmpty)
+        assert(!ended)
+      } else {
+        // Stage should have been aborted and removed from running stages
+        assertDataStructuresEmpty()
+        sc.listenerBus.waitUntilEmpty(1000)
+        assert(ended)
+        jobResult match {
+          case JobFailed(reason) =>
+            assert(reason.getMessage.contains("ResultStage 1 () has failed the maximum"))
+          case other => fail(s"expected JobFailed, not $other")
+        }
+      }
+    }
+  }
+
+  /**
+   * In this test, we create a job with two consecutive shuffles, and simulate 2 failures for each
+   * shuffle fetch. In total In total, the job has had four failures overall but not four failures
+   * for a particular stage, and as such should not be aborted.
+   */
+  test("Failures in different stages should not trigger an overall abort") {
+    setupStageAbortTest(sc)
+
+    val shuffleOneRdd = new MyRDD(sc, 2, Nil).cache()
+    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, new HashPartitioner(2))
+    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne), tracker = mapOutputTracker).cache()
+    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, new HashPartitioner(1))
+    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo), tracker = mapOutputTracker)
+    submit(finalRdd, Array(0))
+
+    // In the first two iterations, Stage 0 succeeds and stage 1 fails. In the next two iterations,
+    // stage 2 fails.
+    for (attempt <- 0 until Stage.MAX_CONSECUTIVE_FETCH_FAILURES) {
+      // Complete all the tasks for the current attempt of stage 0 successfully
+      completeShuffleMapStageSuccessfully(0, attempt, numShufflePartitions = 2)
+
+      if (attempt < Stage.MAX_CONSECUTIVE_FETCH_FAILURES / 2) {
+        // Now we should have a new taskSet, for a new attempt of stage 1.
+        // Fail all these tasks with FetchFailure
+        completeNextStageWithFetchFailure(1, attempt, shuffleDepOne)
+      } else {
+        completeShuffleMapStageSuccessfully(1, attempt, numShufflePartitions = 1)
+
+        // Fail stage 2
+        completeNextStageWithFetchFailure(2, attempt - Stage.MAX_CONSECUTIVE_FETCH_FAILURES / 2,
+          shuffleDepTwo)
+      }
+
+      // this will trigger a resubmission of stage 0, since we've lost some of its
+      // map output, for the next iteration through the loop
+      scheduler.resubmitFailedStages()
+    }
+
+    completeShuffleMapStageSuccessfully(0, 4, numShufflePartitions = 2)
+    completeShuffleMapStageSuccessfully(1, 4, numShufflePartitions = 1)
+
+    // Succeed stage2 with a "42"
+    completeNextResultStageWithSuccess(2, Stage.MAX_CONSECUTIVE_FETCH_FAILURES/2)
+
+    assert(results === Map(0 -> 42))
+    assertDataStructuresEmpty()
+  }
+
+  /**
+   * In this test we demonstrate that only consecutive failures trigger a stage abort. A stage may
+   * fail multiple times, succeed, then fail a few more times (because its run again by downstream
+   * dependencies). The total number of failed attempts for one stage will go over the limit,
+   * but that doesn't matter, since they have successes in the middle.
+   */
+  test("Non-consecutive stage failures don't trigger abort") {
+    setupStageAbortTest(sc)
+
+    val shuffleOneRdd = new MyRDD(sc, 2, Nil).cache()
+    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, new HashPartitioner(2))
+    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne), tracker = mapOutputTracker).cache()
+    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, new HashPartitioner(1))
+    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo), tracker = mapOutputTracker)
+    submit(finalRdd, Array(0))
+
+    // First, execute stages 0 and 1, failing stage 1 up to MAX-1 times.
+    for (attempt <- 0 until Stage.MAX_CONSECUTIVE_FETCH_FAILURES - 1) {
+      // Make each task in stage 0 success
+      completeShuffleMapStageSuccessfully(0, attempt, numShufflePartitions = 2)
+
+      // Now we should have a new taskSet, for a new attempt of stage 1.
+      // Fail these tasks with FetchFailure
+      completeNextStageWithFetchFailure(1, attempt, shuffleDepOne)
+
+      scheduler.resubmitFailedStages()
+
+      // Confirm we have not yet aborted
+      assert(scheduler.runningStages.nonEmpty)
+      assert(!ended)
+    }
+
+    // Rerun stage 0 and 1 to step through the task set
+    completeShuffleMapStageSuccessfully(0, 3, numShufflePartitions = 2)
+    completeShuffleMapStageSuccessfully(1, 3, numShufflePartitions = 1)
+
+    // Fail stage 2 so that stage 1 is resubmitted when we call scheduler.resubmitFailedStages()
+    completeNextStageWithFetchFailure(2, 0, shuffleDepTwo)
+
+    scheduler.resubmitFailedStages()
+
+    // Rerun stage 0 to step through the task set
+    completeShuffleMapStageSuccessfully(0, 4, numShufflePartitions = 2)
+
+    // Now again, fail stage 1 (up to MAX_FAILURES) but confirm that this doesn't trigger an abort
+    // since we succeeded in between.
+    completeNextStageWithFetchFailure(1, 4, shuffleDepOne)
+
+    scheduler.resubmitFailedStages()
+
+    // Confirm we have not yet aborted
+    assert(scheduler.runningStages.nonEmpty)
+    assert(!ended)
+
+    // Next, succeed all and confirm output
+    // Rerun stage 0 + 1
+    completeShuffleMapStageSuccessfully(0, 5, numShufflePartitions = 2)
+    completeShuffleMapStageSuccessfully(1, 5, numShufflePartitions = 1)
+
+    // Succeed stage 2 and verify results
+    completeNextResultStageWithSuccess(2, 1)
+
+    assertDataStructuresEmpty()
+    sc.listenerBus.waitUntilEmpty(1000)
+    assert(ended === true)
+    assert(results === Map(0 -> 42))
+  }
+
   test("trivial shuffle with multiple fetch failures") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
     complete(taskSets(0), Seq(
       (Success, makeMapStatus("hostA", reduceRdd.partitions.length)),
@@ -533,9 +826,9 @@ class DAGSchedulerSuite
    */
   test("late fetch failures don't cause multiple concurrent attempts for the same map stage") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
 
     val mapStageId = 0
@@ -601,9 +894,9 @@ class DAGSchedulerSuite
   test("extremely late fetch failures don't cause multiple concurrent attempts for " +
       "the same stage") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
 
     def countSubmittedReduceStageAttempts(): Int = {
@@ -664,9 +957,9 @@ class DAGSchedulerSuite
 
   test("ignore late map task completions") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
     // pretend we were told hostA went away
     val oldEpoch = mapOutputTracker.getEpoch
@@ -696,8 +989,8 @@ class DAGSchedulerSuite
 
   test("run shuffle with map stage failure") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0, 1))
 
     // Fail the map stage.  This should cause the entire job to fail.
@@ -899,12 +1192,12 @@ class DAGSchedulerSuite
    */
   test("failure of stage used by two jobs") {
     val shuffleMapRdd1 = new MyRDD(sc, 2, Nil)
-    val shuffleDep1 = new ShuffleDependency(shuffleMapRdd1, null)
+    val shuffleDep1 = new ShuffleDependency(shuffleMapRdd1, new HashPartitioner(2))
     val shuffleMapRdd2 = new MyRDD(sc, 2, Nil)
-    val shuffleDep2 = new ShuffleDependency(shuffleMapRdd2, null)
+    val shuffleDep2 = new ShuffleDependency(shuffleMapRdd2, new HashPartitioner(2))
 
-    val reduceRdd1 = new MyRDD(sc, 2, List(shuffleDep1))
-    val reduceRdd2 = new MyRDD(sc, 2, List(shuffleDep1, shuffleDep2))
+    val reduceRdd1 = new MyRDD(sc, 2, List(shuffleDep1), tracker = mapOutputTracker)
+    val reduceRdd2 = new MyRDD(sc, 2, List(shuffleDep1, shuffleDep2), tracker = mapOutputTracker)
 
     // We need to make our own listeners for this test, since by default submit uses the same
     // listener for all jobs, and here we want to capture the failure for each job separately.
@@ -936,9 +1229,9 @@ class DAGSchedulerSuite
 
   test("run trivial shuffle with out-of-band failure and retry") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0))
     // blockManagerMaster.removeExecutor("exec-hostA")
     // pretend we were told hostA went away
@@ -959,10 +1252,10 @@ class DAGSchedulerSuite
 
   test("recursive shuffle failures") {
     val shuffleOneRdd = new MyRDD(sc, 2, Nil)
-    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, null)
-    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne))
-    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, null)
-    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo))
+    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, new HashPartitioner(2))
+    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne), tracker = mapOutputTracker)
+    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, new HashPartitioner(1))
+    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo), tracker = mapOutputTracker)
     submit(finalRdd, Array(0))
     // have the first stage complete normally
     complete(taskSets(0), Seq(
@@ -988,10 +1281,10 @@ class DAGSchedulerSuite
 
   test("cached post-shuffle") {
     val shuffleOneRdd = new MyRDD(sc, 2, Nil).cache()
-    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, null)
-    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne)).cache()
-    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, null)
-    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo))
+    val shuffleDepOne = new ShuffleDependency(shuffleOneRdd, new HashPartitioner(2))
+    val shuffleTwoRdd = new MyRDD(sc, 2, List(shuffleDepOne), tracker = mapOutputTracker).cache()
+    val shuffleDepTwo = new ShuffleDependency(shuffleTwoRdd, new HashPartitioner(1))
+    val finalRdd = new MyRDD(sc, 1, List(shuffleDepTwo), tracker = mapOutputTracker)
     submit(finalRdd, Array(0))
     cacheLocations(shuffleTwoRdd.id -> 0) = Seq(makeBlockManagerId("hostD"))
     cacheLocations(shuffleTwoRdd.id -> 1) = Seq(makeBlockManagerId("hostC"))
@@ -1106,9 +1399,9 @@ class DAGSchedulerSuite
   ignore("reduce tasks should be placed locally with map output") {
     // Create an shuffleMapRdd with 1 partition
     val shuffleMapRdd = new MyRDD(sc, 1, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0))
     complete(taskSets(0), Seq(
         (Success, makeMapStatus("hostA", 1))))
@@ -1127,9 +1420,9 @@ class DAGSchedulerSuite
     val numMapTasks = 4
     // Create an shuffleMapRdd with more partitions
     val shuffleMapRdd = new MyRDD(sc, numMapTasks, Nil)
-    val shuffleDep = new ShuffleDependency(shuffleMapRdd, null)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(1))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0))
 
     val statuses = (1 to numMapTasks).map { i =>
@@ -1151,10 +1444,10 @@ class DAGSchedulerSuite
     // Create an RDD that has both a shuffle dependency and a narrow dependency (e.g. for a join)
     val rdd1 = new MyRDD(sc, 1, Nil)
     val rdd2 = new MyRDD(sc, 1, Nil, locations = Seq(Seq("hostB")))
-    val shuffleDep = new ShuffleDependency(rdd1, null)
+    val shuffleDep = new ShuffleDependency(rdd1, new HashPartitioner(1))
     val narrowDep = new OneToOneDependency(rdd2)
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep, narrowDep))
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep, narrowDep), tracker = mapOutputTracker)
     submit(reduceRdd, Array(0))
     complete(taskSets(0), Seq(
       (Success, makeMapStatus("hostA", 1))))
@@ -1187,7 +1480,8 @@ class DAGSchedulerSuite
   test("simple map stage submission") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
     val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(1))
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val shuffleId = shuffleDep.shuffleId
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
 
     // Submit a map stage by itself
     submitMapStage(shuffleDep)
@@ -1213,7 +1507,8 @@ class DAGSchedulerSuite
   test("map stage submission with reduce stage also depending on the data") {
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
     val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(1))
-    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep))
+    val shuffleId = shuffleDep.shuffleId
+    val reduceRdd = new MyRDD(sc, 1, List(shuffleDep), tracker = mapOutputTracker)
 
     // Submit the map stage by itself
     submitMapStage(shuffleDep)
@@ -1242,7 +1537,7 @@ class DAGSchedulerSuite
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
     val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(2))
     val shuffleId = shuffleDep.shuffleId
-    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRdd = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
 
     // Submit a map stage by itself
     submitMapStage(shuffleDep)
@@ -1291,9 +1586,9 @@ class DAGSchedulerSuite
   test("map stage submission with multiple shared stages and failures") {
     val rdd1 = new MyRDD(sc, 2, Nil)
     val dep1 = new ShuffleDependency(rdd1, new HashPartitioner(2))
-    val rdd2 = new MyRDD(sc, 2, List(dep1))
+    val rdd2 = new MyRDD(sc, 2, List(dep1), tracker = mapOutputTracker)
     val dep2 = new ShuffleDependency(rdd2, new HashPartitioner(2))
-    val rdd3 = new MyRDD(sc, 2, List(dep2))
+    val rdd3 = new MyRDD(sc, 2, List(dep2), tracker = mapOutputTracker)
 
     val listener1 = new SimpleListener
     val listener2 = new SimpleListener
@@ -1399,7 +1694,7 @@ class DAGSchedulerSuite
     assertDataStructuresEmpty()
 
     // Also test that a reduce stage using this shuffled data can immediately run
-    val reduceRDD = new MyRDD(sc, 2, List(shuffleDep))
+    val reduceRDD = new MyRDD(sc, 2, List(shuffleDep), tracker = mapOutputTracker)
     results.clear()
     submit(reduceRDD, Array(0, 1))
     complete(taskSets(2), Seq((Success, 42), (Success, 43)))

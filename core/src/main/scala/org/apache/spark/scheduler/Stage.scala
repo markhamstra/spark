@@ -116,3 +116,8 @@ private[spark] abstract class Stage(
     case _ => false
   }
 }
+
+private[scheduler] object Stage {
+  // The number of consecutive failures allowed before a stage is aborted
+  val MAX_CONSECUTIVE_FETCH_FAILURES = 4
+}
