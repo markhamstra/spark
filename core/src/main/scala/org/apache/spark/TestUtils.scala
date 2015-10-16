@@ -19,6 +19,7 @@ package org.apache.spark
 
 import java.io.{ByteArrayInputStream, File, FileInputStream, FileOutputStream}
 import java.net.{URI, URL}
+import java.util.Arrays
 import java.util.jar.{JarEntry, JarOutputStream}
 
 import scala.collection.JavaConverters._
@@ -129,7 +130,7 @@ private[spark] object TestUtils {
     } else {
       Seq()
     }
-    compiler.getTask(null, null, null, options, null, Seq(sourceFile)).call()
+    compiler.getTask(null, null, null, options.asJava, null, Arrays.asList(sourceFile)).call()
 
     val fileName = className + ".class"
     val result = new File(fileName)
