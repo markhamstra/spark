@@ -273,7 +273,16 @@ object Exchange {
  * input partition ordering requirements are met.
  */
 private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[SparkPlan] {
-  private def defaultNumPreShufflePartitions: Int = sqlContext.conf.numShufflePartitions
+  private def defaultNumPreShufflePartitions: Int =
+    Option(sqlContext.sparkContext.getLocalProperty("spark.sql.shuffle.partitions")).map { str =>
+      try {
+        str.toInt
+      } catch {
+        case _: NumberFormatException =>
+          logError(s"Shuffle partition should be number, actual value $str")
+          sqlContext.conf.numShufflePartitions
+      }
+    }.getOrElse(sqlContext.conf.numShufflePartitions)
 
   private def targetPostShuffleInputSize: Long = sqlContext.conf.targetPostShuffleInputSize
 
