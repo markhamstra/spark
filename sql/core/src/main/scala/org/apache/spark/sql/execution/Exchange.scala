@@ -276,10 +276,11 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
   private def defaultNumPreShufflePartitions: Int =
     Option(sqlContext.sparkContext.getLocalProperty("spark.sql.shuffle.partitions")).map { str =>
       try {
+        logDebug(s"Use spark.sql.shuffle.partitions = $str from local property")
         str.toInt
       } catch {
         case _: NumberFormatException =>
-          logError(s"Shuffle partition should be number, actual value $str")
+          logError(s"spark.sql.shuffle.partitions from local property value $str, expect number")
           sqlContext.conf.numShufflePartitions
       }
     }.getOrElse(sqlContext.conf.numShufflePartitions)
