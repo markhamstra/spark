@@ -240,18 +240,6 @@ class DataFrame private[sql](
     sb.toString()
   }
 
-  private[sql] def sortInternal(global: Boolean, sortExprs: Seq[Column]): DataFrame = {
-    val sortOrder: Seq[SortOrder] = sortExprs.map { col =>
-      col.expr match {
-        case expr: SortOrder =>
-          expr
-        case expr: Expression =>
-          SortOrder(expr, Ascending)
-      }
-    }
-    Sort(sortOrder, global = global, logicalPlan)
-  }
-
   override def toString: String = {
     try {
       schema.map(f => s"${f.name}: ${f.dataType.simpleString}").mkString("[", ", ", "]")
@@ -589,6 +577,32 @@ class DataFrame private[sql](
   }
 
   /**
+   * Returns a new [[DataFrame]] with each partition sorted by the given expressions.
+   *
+   * This is the same operation as "SORT BY" in SQL (Hive QL).
+   *
+   * @group dfops
+   * @since 1.6.0
+   */
+  @scala.annotation.varargs
+  def sortWithinPartitions(sortCol: String, sortCols: String*): DataFrame = {
+    sortWithinPartitions(sortCol, sortCols : _*)
+  }
+
+  /**
+   * Returns a new [[DataFrame]] with each partition sorted by the given expressions.
+   *
+   * This is the same operation as "SORT BY" in SQL (Hive QL).
+   *
+   * @group dfops
+   * @since 1.6.0
+   */
+  @scala.annotation.varargs
+  def sortWithinPartitions(sortExprs: Column*): DataFrame = {
+    sortInternal(global = false, sortExprs)
+  }
+
+  /**
    * Returns a new [[DataFrame]] sorted by the specified column, all in ascending order.
    * {{{
    *   // The following 3 are equivalent
@@ -614,7 +628,7 @@ class DataFrame private[sql](
    */
   @scala.annotation.varargs
   def sort(sortExprs: Column*): DataFrame = {
-    sortInternal(true, sortExprs)
+    sortInternal(global = true, sortExprs)
   }
 
   /**
@@ -634,44 +648,6 @@ class DataFrame private[sql](
    */
   @scala.annotation.varargs
   def orderBy(sortExprs: Column*): DataFrame = sort(sortExprs : _*)
-
-  /**
-   * Returns a new [[DataFrame]] partitioned by the given partitioning expressions into
-   * `numPartitions`. The resulting DataFrame is hash partitioned.
-   * @group dfops
-   * @since 1.6.0
-   */
-  def distributeBy(partitionExprs: Seq[Column], numPartitions: Int): DataFrame = {
-    RepartitionByExpression(partitionExprs.map { _.expr }, logicalPlan, Some(numPartitions))
-  }
-
-  /**
-   * Returns a new [[DataFrame]] partitioned by the given partitioning expressions preserving
-   * the existing number of partitions. The resulting DataFrame is hash partitioned.
-   * @group dfops
-   * @since 1.6.0
-   */
-  def distributeBy(partitionExprs: Seq[Column]): DataFrame = {
-    RepartitionByExpression(partitionExprs.map { _.expr }, logicalPlan, None)
-  }
-
-  /**
-   * Returns a new [[DataFrame]] with each partition sorted by the given expressions.
-   * @group dfops
-   * @since 1.6.0
-   */
-  @scala.annotation.varargs
-  def localSort(sortCol: String, sortCols: String*): DataFrame = localSort(sortCol, sortCols : _*)
-
-  /**
-   * Returns a new [[DataFrame]] with each partition sorted by the given expressions.
-   * @group dfops
-   * @since 1.6.0
-   */
-  @scala.annotation.varargs
-  def localSort(sortExprs: Column*): DataFrame = {
-    sortInternal(false, sortExprs)
-  }
 
   /**
    * Selects column based on the column name and return it as a [[Column]].
@@ -753,7 +729,9 @@ class DataFrame private[sql](
    * SQL expressions.
    *
    * {{{
+   *   // The following are equivalent:
    *   df.selectExpr("colA", "colB as newName", "abs(colC)")
+   *   df.select(expr("colA"), expr("colB as newName"), expr("abs(colC)"))
    * }}}
    * @group dfops
    * @since 1.3.0
@@ -1445,11 +1423,39 @@ class DataFrame private[sql](
 
   /**
    * Returns a new [[DataFrame]] that has exactly `numPartitions` partitions.
-   * @group rdd
+   * @group dfops
    * @since 1.3.0
    */
   def repartition(numPartitions: Int): DataFrame = {
     Repartition(numPartitions, shuffle = true, logicalPlan)
+  }
+
+  /**
+   * Returns a new [[DataFrame]] partitioned by the given partitioning expressions into
+   * `numPartitions`. The resulting DataFrame is hash partitioned.
+   *
+   * This is the same operation as "DISTRIBUTE BY" in SQL (Hive QL).
+   *
+   * @group dfops
+   * @since 1.6.0
+   */
+  @scala.annotation.varargs
+  def repartition(numPartitions: Int, partitionExprs: Column*): DataFrame = {
+    RepartitionByExpression(partitionExprs.map(_.expr), logicalPlan, Some(numPartitions))
+  }
+
+  /**
+   * Returns a new [[DataFrame]] partitioned by the given partitioning expressions preserving
+   * the existing number of partitions. The resulting DataFrame is hash partitioned.
+   *
+   * This is the same operation as "DISTRIBUTE BY" in SQL (Hive QL).
+   *
+   * @group dfops
+   * @since 1.6.0
+   */
+  @scala.annotation.varargs
+  def repartition(partitionExprs: Column*): DataFrame = {
+    RepartitionByExpression(partitionExprs.map(_.expr), logicalPlan, numPartitions = None)
   }
 
   /**
@@ -1937,6 +1943,12 @@ class DataFrame private[sql](
     write.mode(SaveMode.Append).insertInto(tableName)
   }
 
+  ////////////////////////////////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////
+  // End of deprecated methods
+  ////////////////////////////////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////
+
   /**
    * Wrap a DataFrame action to track all Spark jobs in the body so that we can connect them with
    * an execution.
@@ -1945,10 +1957,37 @@ class DataFrame private[sql](
     SQLExecution.withNewExecutionId(sqlContext, queryExecution)(body)
   }
 
-  ////////////////////////////////////////////////////////////////////////////
-  ////////////////////////////////////////////////////////////////////////////
-  // End of deprecated methods
-  ////////////////////////////////////////////////////////////////////////////
-  ////////////////////////////////////////////////////////////////////////////
+  /**
+   * Wrap a DataFrame action to track the QueryExecution and time cost, then report to the
+   * user-registered callback functions.
+   */
+  private def withCallback[T](name: String, df: DataFrame)(action: DataFrame => T) = {
+    try {
+      df.queryExecution.executedPlan.foreach { plan =>
+        plan.metrics.valuesIterator.foreach(_.reset())
+      }
+      val start = System.nanoTime()
+      val result = action(df)
+      val end = System.nanoTime()
+      sqlContext.listenerManager.onSuccess(name, df.queryExecution, end - start)
+      result
+    } catch {
+      case e: Exception =>
+        sqlContext.listenerManager.onFailure(name, df.queryExecution, e)
+        throw e
+    }
+  }
+
+  private def sortInternal(global: Boolean, sortExprs: Seq[Column]): DataFrame = {
+    val sortOrder: Seq[SortOrder] = sortExprs.map { col =>
+      col.expr match {
+        case expr: SortOrder =>
+          expr
+        case expr: Expression =>
+          SortOrder(expr, Ascending)
+      }
+    }
+    Sort(sortOrder, global = global, logicalPlan)
+  }
 
 }
