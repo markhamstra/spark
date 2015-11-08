@@ -1068,5 +1068,4 @@ class DataFrameSuite extends QueryTest with SharedSQLContext {
       if (!allSequential) throw new SparkException("Partition should contain all sequential values")
     }
   }
->>>>>>> [SPARK-11410][SQL] Add APIs to provide functionality similar to Hive's DISTRIBUTE BY and SORT BY.
 }

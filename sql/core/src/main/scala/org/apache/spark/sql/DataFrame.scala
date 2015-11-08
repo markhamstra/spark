@@ -475,6 +475,26 @@ class DataFrame private[sql](
    * @since 1.4.0
    */
   def join(right: DataFrame, usingColumns: Seq[String]): DataFrame = {
+    join(right, usingColumns, "inner")
+  }
+
+  /**
+    * Equi-join with another [[DataFrame]] using the given columns.
+    *
+    * Different from other join functions, the join columns will only appear once in the output,
+    * i.e. similar to SQL's `JOIN USING` syntax.
+    *
+    * Note that if you perform a self-join using this function without aliasing the input
+    * [[DataFrame]]s, you will NOT be able to reference any columns after the join, since
+    * there is no way to disambiguate which side of the join you would like to reference.
+    *
+    * @param right Right side of the join operation.
+    * @param usingColumns Names of the columns to join on. This columns must exist on both sides.
+    * @param joinType One of: `inner`, `outer`, `left_outer`, `right_outer`, `leftsemi`.
+    * @group dfops
+    * @since 1.6.0
+    */
+  def join(right: DataFrame, usingColumns: Seq[String], joinType: String): DataFrame = {
     // Analyze the self join. The assumption is that the analyzer will disambiguate left vs right
     // by creating a new instance for one of the branch.
     val joined = sqlContext.executePlan(
@@ -1973,27 +1993,6 @@ class DataFrame private[sql](
    */
   private[sql] def withNewExecutionId[T](body: => T): T = {
     SQLExecution.withNewExecutionId(sqlContext, queryExecution)(body)
-  }
-
-  /**
-   * Wrap a DataFrame action to track the QueryExecution and time cost, then report to the
-   * user-registered callback functions.
-   */
-  private def withCallback[T](name: String, df: DataFrame)(action: DataFrame => T) = {
-    try {
-      df.queryExecution.executedPlan.foreach { plan =>
-        plan.metrics.valuesIterator.foreach(_.reset())
-      }
-      val start = System.nanoTime()
-      val result = action(df)
-      val end = System.nanoTime()
-      sqlContext.listenerManager.onSuccess(name, df.queryExecution, end - start)
-      result
-    } catch {
-      case e: Exception =>
-        sqlContext.listenerManager.onFailure(name, df.queryExecution, e)
-        throw e
-    }
   }
 
   private def sortInternal(global: Boolean, sortExprs: Seq[Column]): DataFrame = {
