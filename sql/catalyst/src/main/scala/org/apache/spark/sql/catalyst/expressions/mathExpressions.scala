@@ -812,12 +812,42 @@ case class Round(child: Expression, scale: Expression)
             }"""
         }
       case DoubleType => // if child eval to NaN or Infinity, just return it.
+        // The logic for rounding half-integers to even values is exemplified by the following
+        // table:
+        //
+        // x    | x rounded to half-even | x * 2 | (x rounded to half-even) * 2 | (x * 2) & 3
+        // ----------------------------------------------------------------------------------------
+        // -4.5 | -4                     | -9    | -8                           | 3
+        // -3.5 | -4                     | -7    | -8                           | 1
+        // -2.5 | -2                     | -5    | -6                           | 3
+        // -1.5 | -2                     | -3    | -6                           | 1
+        // -0.5 |  0                     | -1    |  0                           | 3
+        //  0.5 |  0                     |  1    |  0                           | 1
+        //  1.5 |  2                     |  3    |  4                           | 3
+        //  2.5 |  2                     |  5    |  4                           | 1
+        //  3.5 |  4                     |  7    |  8                           | 3
+        //  4.5 |  4                     |  9    |  8                           | 1
+        //
+        // Therefore, looking at the last three columns above, if x has the form of "<integer>.5",
+        // then
+        //   (x rounded to half-even) * 2 = (x * 2) + ((x * 2) & 3) - 2
+
         if (_scale == 0) {
           s"""
             if (Double.isNaN(${ce.value}) || Double.isInfinite(${ce.value})){
               ${ev.value} = ${ce.value};
             } else {
-              ${ev.value} = Math.round(${ce.value});
+              double timesTwo = ${ce.value} * 2;
+              long timesTwoRounded = Math.round(timesTwo);
+              if (timesTwo == timesTwoRounded) {
+                if ((timesTwo & 1) == 0) {
+                  ${ev.value} = timesTwo >> 1;
+                } else {
+                  ${ev.value} = (timesTwo + (timesTwoRounded & 3) - 2) >> 1;
+                }
+              } else {
+                ${ev.value} = Math.round(${ce.value});
+              }
             }"""
         } else {
           s"""
