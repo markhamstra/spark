@@ -843,7 +843,7 @@ case class Round(child: Expression, scale: Expression)
                 if ((timesTwoRounded & 1) == 0) {
                   ${ev.value} = timesTwoRounded >> 1;
                 } else {
-                  ${ev.value} = (timesTwo + (timesTwoRounded & 3) - 2) >> 1;
+                  ${ev.value} = (timesTwoRounded + (timesTwoRounded & 3) - 2) >> 1;
                 }
               } else {
                 ${ev.value} = Math.round(${ce.value});
