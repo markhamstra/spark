@@ -841,7 +841,7 @@ case class Round(child: Expression, scale: Expression)
               long timesTwoRounded = Math.round(timesTwo);
               if (timesTwo == timesTwoRounded) {
                 if ((timesTwoRounded & 1) == 0) {
-                  ${ev.value} = timesTwo >> 1;
+                  ${ev.value} = timesTwoRounded >> 1;
                 } else {
                   ${ev.value} = (timesTwo + (timesTwoRounded & 3) - 2) >> 1;
                 }
