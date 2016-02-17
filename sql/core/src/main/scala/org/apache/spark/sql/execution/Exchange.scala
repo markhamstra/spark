@@ -399,7 +399,17 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
       if (child.outputPartitioning.satisfies(distribution)) {
         child
       } else {
-        Exchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
+        if (distribution.isInstanceOf[OrderedDistribution]) {
+          Exchange(
+            createPartitioning(distribution, child.outputPartitioning.numPartitions),
+            child
+          )
+        } else {
+          Exchange(
+            createPartitioning(distribution, defaultNumPreShufflePartitions),
+            child
+          )
+        }
       }
     }
 
