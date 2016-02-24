@@ -400,11 +400,17 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
         child
       } else {
         if (distribution.isInstanceOf[OrderedDistribution]) {
+          // scalastyle:off
+          println(s"\n\n\n*** MEH0\nnumPartitions = ${child.outputPartitioning.numPartitions}")
+          // scalastyle:on
           Exchange(
             createPartitioning(distribution, child.outputPartitioning.numPartitions),
             child
           )
         } else {
+          // scalastyle:off
+          println(s"\n\n\n*** MEH1\nnumPartitions = $defaultNumPreShufflePartitions")
+          // scalastyle:on
           Exchange(
             createPartitioning(distribution, defaultNumPreShufflePartitions),
             child
@@ -448,7 +454,17 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
           }
           // If we need to shuffle all children, we use defaultNumPreShufflePartitions as the
           // number of partitions. Otherwise, we use maxChildrenNumPartitions.
-          if (shufflesAllChildren) defaultNumPreShufflePartitions else maxChildrenNumPartitions
+          if (shufflesAllChildren) {
+            // scalastyle:off
+            println(s"\n\n\n*** MEH2\nnumPartitions = $defaultNumPreShufflePartitions")
+            // scalastyle:on
+            defaultNumPreShufflePartitions
+          } else {
+            // scalastyle:off
+            println(s"\n\n\n*** MEH3\nnumPartitions = $maxChildrenNumPartitions")
+            // scalastyle:on
+            maxChildrenNumPartitions
+          }
         }
 
         children.zip(requiredChildDistributions).map {
