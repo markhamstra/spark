@@ -38,7 +38,7 @@ import org.apache.spark.util.MutablePair
 case class Exchange(
     var newPartitioning: Partitioning,
     child: SparkPlan,
-    @transient coordinator: Option[ExchangeCoordinator]) extends UnaryNode {
+    @transient coordinator: Option[ExchangeCoordinator]) extends UnaryNode with Logging {
 
   override def nodeName: String = {
     val extraInfo = coordinator match {
@@ -374,6 +374,8 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
             //
             // It will be great to introduce a new Partitioning to represent the post-shuffle
             // partitions when one post-shuffle partition includes multiple pre-shuffle partitions.
+            logDebug(
+              s"***MEH: defaultNumPreShufflePartitions @ 0 = $defaultNumPreShufflePartitions")
             val targetPartitioning =
               createPartitioning(distribution, defaultNumPreShufflePartitions)
             assert(targetPartitioning.isInstanceOf[HashPartitioning])
@@ -399,6 +401,8 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
       if (child.outputPartitioning.satisfies(distribution)) {
         child
       } else {
+        logDebug(
+          s"***MEH: defaultNumPreShufflePartitions @ 1 = $defaultNumPreShufflePartitions")
         Exchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
       }
     }
@@ -438,7 +442,11 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
           }
           // If we need to shuffle all children, we use defaultNumPreShufflePartitions as the
           // number of partitions. Otherwise, we use maxChildrenNumPartitions.
-          if (shufflesAllChildren) defaultNumPreShufflePartitions else maxChildrenNumPartitions
+          if (shufflesAllChildren) {
+            logDebug(
+              s"***MEH: defaultNumPreShufflePartitions @ 2 = $defaultNumPreShufflePartitions")
+            defaultNumPreShufflePartitions
+          } else maxChildrenNumPartitions
         }
 
         children.zip(requiredChildDistributions).map {
