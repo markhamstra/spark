@@ -86,7 +86,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
     {
       // There are a few large pre-shuffle partitions.
       val bytesByPartitionId = Array[Long](110, 10, 100, 110, 0)
-      val expectedPartitionStartIndices = Array[Int](0, 1, 3, 4)
+      val expectedPartitionStartIndices = Array[Int](0, 1, 2, 3, 4)
       checkEstimation(coordinator, Array(bytesByPartitionId), expectedPartitionStartIndices)
     }
 
@@ -144,10 +144,10 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
 
     {
-      // 2 post-shuffle partition are needed.
+      // 3 post-shuffle partition are needed.
       val bytesByPartitionId1 = Array[Long](0, 10, 0, 20, 0)
       val bytesByPartitionId2 = Array[Long](30, 0, 70, 0, 30)
-      val expectedPartitionStartIndices = Array[Int](0, 3)
+      val expectedPartitionStartIndices = Array[Int](0, 2, 4)
       checkEstimation(
         coordinator,
         Array(bytesByPartitionId1, bytesByPartitionId2),
@@ -155,10 +155,10 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
     }
 
     {
-      // 2 post-shuffle partition are needed.
+      // 4 post-shuffle partition are needed.
       val bytesByPartitionId1 = Array[Long](0, 99, 0, 20, 0)
       val bytesByPartitionId2 = Array[Long](30, 0, 70, 0, 30)
-      val expectedPartitionStartIndices = Array[Int](0, 2)
+      val expectedPartitionStartIndices = Array[Int](0, 1, 2, 4)
       checkEstimation(
         coordinator,
         Array(bytesByPartitionId1, bytesByPartitionId2),
@@ -169,7 +169,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
       // 2 post-shuffle partition are needed.
       val bytesByPartitionId1 = Array[Long](0, 100, 0, 30, 0)
       val bytesByPartitionId2 = Array[Long](30, 0, 70, 0, 30)
-      val expectedPartitionStartIndices = Array[Int](0, 2, 4)
+      val expectedPartitionStartIndices = Array[Int](0, 1, 2, 4)
       checkEstimation(
         coordinator,
         Array(bytesByPartitionId1, bytesByPartitionId2),
@@ -180,7 +180,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
       // There are a few large pre-shuffle partitions.
       val bytesByPartitionId1 = Array[Long](0, 100, 40, 30, 0)
       val bytesByPartitionId2 = Array[Long](30, 0, 60, 0, 110)
-      val expectedPartitionStartIndices = Array[Int](0, 2, 3)
+      val expectedPartitionStartIndices = Array[Int](0, 1, 2, 3, 4)
       checkEstimation(
         coordinator,
         Array(bytesByPartitionId1, bytesByPartitionId2),
@@ -229,7 +229,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
       // The number of post-shuffle partitions is determined by the coordinator.
       val bytesByPartitionId1 = Array[Long](10, 50, 20, 80, 20)
       val bytesByPartitionId2 = Array[Long](40, 10, 0, 10, 30)
-      val expectedPartitionStartIndices = Array[Int](0, 2, 4)
+      val expectedPartitionStartIndices = Array[Int](0, 1, 3, 4)
       checkEstimation(
         coordinator,
         Array(bytesByPartitionId1, bytesByPartitionId2),
@@ -277,7 +277,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
     try f(sqlContext) finally sparkContext.stop()
   }
 
-  Seq(Some(3), None).foreach { minNumPostShufflePartitions =>
+  Seq(Some(5), None).foreach { minNumPostShufflePartitions =>
     val testNameNote = minNumPostShufflePartitions match {
       case Some(numPartitions) => "(minNumPostShufflePartitions: 3)"
       case None => ""
@@ -307,7 +307,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             exchanges.foreach {
               case e: ShuffleExchange =>
                 assert(e.coordinator.isDefined)
-                assert(e.outputPartitioning.numPartitions === 3)
+                assert(e.outputPartitioning.numPartitions === 5)
               case o =>
             }
 
@@ -315,7 +315,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             exchanges.foreach {
               case e: ShuffleExchange =>
                 assert(e.coordinator.isDefined)
-                assert(e.outputPartitioning.numPartitions === 2)
+                assert(e.outputPartitioning.numPartitions === 3)
               case o =>
             }
         }
@@ -358,7 +358,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             exchanges.foreach {
               case e: ShuffleExchange =>
                 assert(e.coordinator.isDefined)
-                assert(e.outputPartitioning.numPartitions === 3)
+                assert(e.outputPartitioning.numPartitions === 5)
               case o =>
             }
 
@@ -414,13 +414,13 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             exchanges.foreach {
               case e: ShuffleExchange =>
                 assert(e.coordinator.isDefined)
-                assert(e.outputPartitioning.numPartitions === 3)
+                assert(e.outputPartitioning.numPartitions === 5)
               case o =>
             }
 
           case None =>
             assert(exchanges.forall(_.coordinator.isDefined))
-            assert(exchanges.map(_.outputPartitioning.numPartitions).toSeq.toSet === Set(1, 2))
+            assert(exchanges.map(_.outputPartitioning.numPartitions).toSeq.toSet === Set(2, 3))
         }
       }
 
@@ -466,13 +466,13 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             exchanges.foreach {
               case e: ShuffleExchange =>
                 assert(e.coordinator.isDefined)
-                assert(e.outputPartitioning.numPartitions === 3)
+                assert(e.outputPartitioning.numPartitions === 5)
               case o =>
             }
 
           case None =>
             assert(exchanges.forall(_.coordinator.isDefined))
-            assert(exchanges.map(_.outputPartitioning.numPartitions).toSeq.toSet === Set(2, 3))
+            assert(exchanges.map(_.outputPartitioning.numPartitions).toSeq.toSet === Set(5, 3))
         }
       }
 

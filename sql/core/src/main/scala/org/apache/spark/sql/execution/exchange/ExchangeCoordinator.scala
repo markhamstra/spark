@@ -163,25 +163,20 @@ private[sql] class ExchangeCoordinator(
     while (i < numPreShufflePartitions) {
       // We calculate the total size of ith pre-shuffle partitions from all pre-shuffle stages.
       // Then, we add the total size to postShuffleInputSize.
+      var nextShuffleInputSize = 0L
       var j = 0
       while (j < mapOutputStatistics.length) {
-        postShuffleInputSize += mapOutputStatistics(j).bytesByPartitionId(i)
+        nextShuffleInputSize += mapOutputStatistics(j).bytesByPartitionId(i)
         j += 1
       }
 
-      // If the current postShuffleInputSize is equal or greater than the
-      // targetPostShuffleInputSize, We need to add a new element in partitionStartIndices.
-      if (postShuffleInputSize >= targetPostShuffleInputSize) {
-        if (i < numPreShufflePartitions - 1) {
-          // Next start index.
-          partitionStartIndices += i + 1
-        } else {
-          // This is the last element. So, we do not need to append the next start index to
-          // partitionStartIndices.
-        }
+      // If including the nextShuffleInputSize would exceed the target partition size, then start a
+      // new partition.
+      if (i > 0 && postShuffleInputSize + nextShuffleInputSize > targetPostShuffleInputSize) {
+        partitionStartIndices += i
         // reset postShuffleInputSize.
-        postShuffleInputSize = 0L
-      }
+        postShuffleInputSize = nextShuffleInputSize
+      } else postShuffleInputSize += nextShuffleInputSize
 
       i += 1
     }
