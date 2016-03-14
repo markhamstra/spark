@@ -800,7 +800,11 @@ case class Round(child: Expression, scale: Expression)
             if (Float.isNaN(${ce.value}) || Float.isInfinite(${ce.value})){
               ${ev.value} = ${ce.value};
             } else {
-              ${ev.value} = Math.round(${ce.value});
+              if (${ce.value} < 0) {
+                ${ev.value} = -1 * Math.round(-1 * ${ce.value});
+              } else {
+                ${ev.value} = Math.round(${ce.value});
+              }
             }"""
         } else {
           s"""
@@ -817,7 +821,11 @@ case class Round(child: Expression, scale: Expression)
             if (Double.isNaN(${ce.value}) || Double.isInfinite(${ce.value})){
               ${ev.value} = ${ce.value};
             } else {
-              ${ev.value} = Math.round(${ce.value});
+              if (${ce.value} < 0) {
+                ${ev.value} = -1 * Math.round(-1 * ${ce.value});
+              } else {
+                ${ev.value} = Math.round(${ce.value});
+              }
             }"""
         } else {
           s"""
