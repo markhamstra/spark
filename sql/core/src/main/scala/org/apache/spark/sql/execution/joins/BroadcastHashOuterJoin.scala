@@ -62,10 +62,15 @@ case class BroadcastHashOuterJoin(
 
   override def outputPartitioning: Partitioning = streamedPlan.outputPartitioning
 
+  @transient
+  @volatile
+  private[joins] var broadcastFutureInitialized = false
+
   // Use lazy so that we won't do broadcast when calling explain but still cache the broadcast value
   // for the same query.
   @transient
-  private lazy val broadcastFuture = {
+  private[joins] lazy val broadcastFuture = {
+    broadcastFutureInitialized = true
     val numBuildRows = joinType match {
       case RightOuter => longMetric("numLeftRows")
       case LeftOuter => longMetric("numRightRows")
