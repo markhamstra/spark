@@ -24,7 +24,6 @@ import java.util.{List => JList}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.{Failure, Try}
-
 import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -38,7 +37,6 @@ import org.apache.parquet.hadoop.util.ContextUtil
 import org.apache.parquet.schema.MessageType
 import org.apache.parquet.{Log => ApacheParquetLog}
 import org.slf4j.bridge.SLF4JBridgeHandler
-
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.{RDD, SqlNewHadoopPartition, SqlNewHadoopRDD}
@@ -48,7 +46,7 @@ import org.apache.spark.sql.execution.datasources.PartitionSpec
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.{SerializableConfiguration, Utils}
-import org.apache.spark.{Logging, Partition => SparkPartition, SparkException}
+import org.apache.spark.{Logging, SparkConf, SparkContext, SparkException, Partition => SparkPartition}
 
 
 private[sql] class DefaultSource extends HadoopFsRelationProvider with DataSourceRegister {
@@ -734,6 +732,24 @@ private[sql] object ParquetRelation extends Logging {
   }
 
   /**
+   * SPY-1037 Avoid grabbing all the cores for schemaMerging.
+   */
+  def csdSchemaMergingParallelism(
+    isS3: Boolean,
+    parts: Int,
+    sparkContext: SparkContext) : Int = {
+
+    val default = sparkContext.conf.getInt(
+      "spark.sql.parquet.mergeSchema.parallelism",
+      sparkContext.defaultParallelism)
+
+    // apply bounds
+    val bounded = math.max(1, math.min(default, sparkContext.defaultParallelism))
+
+    if (isS3) bounded
+    else math.max(1, math.min(parts, bounded))
+  }
+  /**
    * Figures out a merged Parquet schema with a distributed Spark job.
    *
    * Note that locality is not taken into consideration here because:
@@ -771,7 +787,11 @@ private[sql] object ParquetRelation extends Logging {
     val partiallyMergedSchemas =
       sqlContext
         .sparkContext
-        .parallelize(partialFileStatusInfo)
+        .parallelize(partialFileStatusInfo,
+          csdSchemaMergingParallelism(
+            partialFileStatusInfo.headOption.filter(_._1.startsWith("s3")).isDefined,
+            partialFileStatusInfo.length,
+            sqlContext.sparkContext))
         .mapPartitions { iterator =>
           // Resembles fake `FileStatus`es with serialized path and length information.
           val fakeFileStatuses = iterator.map { case (path, length) =>
