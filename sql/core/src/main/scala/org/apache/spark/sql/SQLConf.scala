@@ -300,7 +300,7 @@ private[spark] object SQLConf {
   val PARQUET_COMPRESSION = enumConf("spark.sql.parquet.compression.codec",
     valueConverter = v => v.toLowerCase,
     validValues = Set("uncompressed", "snappy", "gzip", "lzo"),
-    defaultValue = Some("gzip"),
+    defaultValue = Some("snappy"),
     doc = "Sets the compression codec use when writing Parquet files. Acceptable values include: " +
       "uncompressed, snappy, gzip, lzo.")
 
