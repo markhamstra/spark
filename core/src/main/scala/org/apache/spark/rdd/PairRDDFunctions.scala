@@ -1117,9 +1117,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
           maybeUpdateOutputMetrics(bytesWrittenCallback, outputMetrics, recordsWritten)
           recordsWritten += 1
         }
-      } {
-        writer.close(hadoopContext)
-      }
+      }(finallyBlock = writer.close(hadoopContext))
       committer.commitTask(hadoopContext)
       bytesWrittenCallback.foreach { fn => outputMetrics.setBytesWritten(fn()) }
       outputMetrics.setRecordsWritten(recordsWritten)
@@ -1203,9 +1201,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
           maybeUpdateOutputMetrics(bytesWrittenCallback, outputMetrics, recordsWritten)
           recordsWritten += 1
         }
-      } {
-        writer.close()
-      }
+      }(finallyBlock = writer.close())
       writer.commit()
       bytesWrittenCallback.foreach { fn => outputMetrics.setBytesWritten(fn()) }
       outputMetrics.setRecordsWritten(recordsWritten)
