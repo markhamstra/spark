@@ -25,7 +25,7 @@
   </parent>
   <groupId>org.apache.spark</groupId>
   <artifactId>spark-parent_2.11</artifactId>
-  <version>1.6.2-csd-1-SNAPSHOT</version>
+  <version>1.6.2-csd-1</version>
   <packaging>pom</packaging>
   <name>Spark Project Parent POM</name>
   <url>http://spark.apache.org/</url>
@@ -40,7 +40,7 @@
     <connection>scm:git:git@github.com:clearstorydata/spark.git</connection>
     <url>scm:git:git@github.com:clearstorydata/spark.git</url>
     <developerConnection>scm:git:git@github.com:clearstorydata/spark.git</developerConnection>
-    <tag>HEAD</tag>
+    <tag>spark-parent_2.11-1.6.2-csd-1</tag>
   </scm>
   <developers>
     <developer>
