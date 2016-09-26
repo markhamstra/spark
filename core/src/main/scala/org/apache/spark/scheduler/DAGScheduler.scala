@@ -1241,7 +1241,6 @@ class DAGScheduler(
             s" ${task.stageAttemptId} and there is a more recent attempt for that stage " +
             s"(attempt ID ${failedStage.latestInfo.attemptId}) running")
         } else {
-          var abortedStage = false
           // It is likely that we receive multiple FetchFailed for a single stage (because we have
           // multiple tasks running concurrently on different executors). In that case, it is
           // possible the fetch failure has already been handled by the scheduler.
@@ -1254,30 +1253,44 @@ class DAGScheduler(
               s"longer running")
           }
 
-          if (disallowStageRetryForTest) {
-            abortStage(failedStage, "Fetch failure will not retry stage due to testing config",
-              None)
-            abortedStage = true
-          } else if (failedStage.failedOnFetchAndShouldAbort(task.stageAttemptId)) {
-            abortStage(failedStage, s"$failedStage (${failedStage.name}) " +
+          val shouldAbortStage =
+            failedStage.failedOnFetchAndShouldAbort(task.stageAttemptId) ||
+            disallowStageRetryForTest
+
+          if (shouldAbortStage) {
+            val abortMessage = if (disallowStageRetryForTest) {
+              "Fetch failure will not retry stage due to testing config"
+            } else {
+              s"$failedStage (${failedStage.name}) " +
               s"has failed the maximum allowable number of " +
               s"times: ${Stage.MAX_CONSECUTIVE_FETCH_FAILURES}. " +
-              s"Most recent failure reason: ${failureMessage}", None)
-            abortedStage = true
-          } else if (failedStages.isEmpty) {
-            // Don't schedule an event to resubmit failed stages if failed isn't empty, because
-            // in that case the event will already have been scheduled.
-            // TODO: Cancel running tasks in the stage
-            logInfo(s"Resubmitting $mapStage (${mapStage.name}) and " +
-              s"$failedStage (${failedStage.name}) due to fetch failure")
-            messageScheduler.schedule(new Runnable {
-              override def run(): Unit = eventProcessLoop.post(ResubmitFailedStages)
-            }, DAGScheduler.RESUBMIT_TIMEOUT, TimeUnit.MILLISECONDS)
-          }
-          if (!abortedStage) {
+              s"Most recent failure reason: $failureMessage"
+            }
+            abortStage(failedStage, abortMessage, None)
+          } else { // update failedStages and make sure a ResubmitFailedStages event is enqueued
+            // TODO: Cancel running tasks in the failed stage -- cf. SPARK-17064
+            val noResubmitEnqueued = failedStages.isEmpty
             failedStages += failedStage
             failedStages += mapStage
+            if (noResubmitEnqueued) {
+              // If failedStages is not empty, then a previous FetchFailed already went through
+              // this block of code and queued up a ResubmitFailedStages event that has not yet
+              // run.  We, therefore, only need to queue up a new ResubmitFailedStages event when
+              // failedStages.isEmpty.
+              logInfo(
+                s"Resubmitting $mapStage (${mapStage.name}) and " +
+                s"$failedStage (${failedStage.name}) due to fetch failure"
+              )
+              messageScheduler.schedule(
+                new Runnable {
+                  override def run(): Unit = eventProcessLoop.post(ResubmitFailedStages)
+                },
+                DAGScheduler.RESUBMIT_TIMEOUT,
+                TimeUnit.MILLISECONDS
+              )
+            }
           }
+
           // Mark the map whose fetch failed as broken in the map stage
           if (mapId != -1) {
             mapStage.removeOutputLoc(mapId, bmAddress)

@@ -2113,7 +2113,7 @@ class DAGSchedulerSuite extends SparkFunSuite with LocalSparkContext with Timeou
         val shuffleHandle =
           rdd1.dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]].shuffleHandle
         rdd1.map {
-          case (x, _) if (x == 1) =>
+          case (x, _) if x == 1 =>
             throw new FetchFailedException(
               BlockManagerId("1", "1", 1), shuffleHandle.shuffleId, 0, 0, "test")
           case (x, _) => x
@@ -2130,7 +2130,7 @@ class DAGSchedulerSuite extends SparkFunSuite with LocalSparkContext with Timeou
         val shuffleHandle =
           rdd2.dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]].shuffleHandle
         rdd2.map {
-          case (x, _) if (x == 1) =>
+          case (x, _) if x == 1 =>
             throw new FetchFailedException(
               BlockManagerId("1", "1", 1), shuffleHandle.shuffleId, 0, 0, "test")
           case (x, _) => x
