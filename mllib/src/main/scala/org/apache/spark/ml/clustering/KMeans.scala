@@ -42,7 +42,7 @@ private[clustering] trait KMeansParams extends Params with HasMaxIter with HasFe
   with HasSeed with HasPredictionCol with HasTol {
 
   /**
-   * The number of clusters to create (k). Must be > 1. Note that it is possible for fewer than
+   * The number of clusters to create (k). Must be &gt; 1. Note that it is possible for fewer than
    * k clusters to be returned, for example, if there are fewer than k distinct points to cluster.
    * Default: 2.
    * @group param
@@ -72,7 +72,7 @@ private[clustering] trait KMeansParams extends Params with HasMaxIter with HasFe
 
   /**
    * Param for the number of steps for the k-means|| initialization mode. This is an advanced
-   * setting -- the default of 2 is almost always enough. Must be > 0. Default: 2.
+   * setting -- the default of 2 is almost always enough. Must be &gt; 0. Default: 2.
    * @group expertParam
    */
   @Since("1.5.0")
@@ -95,13 +95,11 @@ private[clustering] trait KMeansParams extends Params with HasMaxIter with HasFe
 }
 
 /**
- * :: Experimental ::
  * Model fitted by KMeans.
  *
  * @param parentModel a model trained by spark.mllib.clustering.KMeans.
  */
 @Since("1.5.0")
-@Experimental
 class KMeansModel private[ml] (
     @Since("1.5.0") override val uid: String,
     private val parentModel: MLlibKMeansModel)
@@ -247,13 +245,11 @@ object KMeansModel extends MLReadable[KMeansModel] {
 }
 
 /**
- * :: Experimental ::
  * K-means clustering with support for k-means|| initialization proposed by Bahmani et al.
  *
- * @see [[http://dx.doi.org/10.14778/2180912.2180915 Bahmani et al., Scalable k-means++.]]
+ * @see <a href="http://dx.doi.org/10.14778/2180912.2180915">Bahmani et al., Scalable k-means++.</a>
  */
 @Since("1.5.0")
-@Experimental
 class KMeans @Since("1.5.0") (
     @Since("1.5.0") override val uid: String)
   extends Estimator[KMeansModel] with KMeansParams with DefaultParamsWritable {
@@ -346,7 +342,7 @@ object KMeans extends DefaultParamsReadable[KMeans] {
  * :: Experimental ::
  * Summary of KMeans.
  *
- * @param predictions  [[DataFrame]] produced by [[KMeansModel.transform()]].
+ * @param predictions  `DataFrame` produced by `KMeansModel.transform()`.
  * @param predictionCol  Name for column of predicted clusters in `predictions`.
  * @param featuresCol  Name for column of features in `predictions`.
  * @param k  Number of clusters.

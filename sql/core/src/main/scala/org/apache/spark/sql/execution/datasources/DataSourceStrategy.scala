@@ -163,7 +163,7 @@ case class DataSourceAnalysis(conf: CatalystConf) extends Rule[LogicalPlan] {
 
     case i @ logical.InsertIntoTable(
            l @ LogicalRelation(t: HadoopFsRelation, _, table), part, query, overwrite, false)
-        if query.resolved && t.schema.asNullable == query.schema.asNullable =>
+        if query.resolved && t.schema.sameType(query.schema) =>
 
       // Sanity checks
       if (t.location.rootPaths.size != 1) {
@@ -217,16 +217,25 @@ case class DataSourceAnalysis(conf: CatalystConf) extends Rule[LogicalPlan] {
             if (deletedPartitions.nonEmpty) {
               AlterTableDropPartitionCommand(
                 l.catalogTable.get.identifier, deletedPartitions.toSeq,
-                ifExists = true, purge = true).run(t.sparkSession)
+                ifExists = true, purge = false,
+                retainData = true /* already deleted */).run(t.sparkSession)
             }
           }
         }
         t.location.refresh()
       }
 
+      val staticPartitionKeys: TablePartitionSpec = if (overwrite.enabled) {
+        overwrite.staticPartitionKeys.map { case (k, v) =>
+          (partitionSchema.map(_.name).find(_.equalsIgnoreCase(k)).get, v)
+        }
+      } else {
+        Map.empty
+      }
+
       val insertCmd = InsertIntoHadoopFsRelationCommand(
         outputPath,
-        if (overwrite.enabled) overwrite.staticPartitionKeys else Map.empty,
+        staticPartitionKeys,
         customPartitionLocations,
         partitionSchema,
         t.bucketSpec,
