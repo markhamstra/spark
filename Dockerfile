@@ -4,7 +4,7 @@
 
 
 # To build the container, run:
-# docker build -t spark:csd-1.6.2 .
+# docker build -t spark:csd-X.Y.Z .
 
 FROM ubuntu:trusty
 MAINTAINER ClearStory Data
@@ -75,7 +75,7 @@ RUN curl -sL --retry 3 \
 RUN ln -nsf $HADOOP_HOME/ /usr/lib/hadoop
 
 # SPARK
-ENV SPARK_VERSION 1.6.2
+ENV SPARK_VERSION 1.6.3
 ENV SPARK_HOME /usr/share/spark
 
 ADD dist $SPARK_HOME
