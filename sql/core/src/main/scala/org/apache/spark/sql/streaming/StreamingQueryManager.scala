@@ -24,7 +24,7 @@ import scala.collection.mutable
 
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.annotation.Experimental
+import org.apache.spark.annotation.{Experimental, InterfaceStability}
 import org.apache.spark.sql.{AnalysisException, DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnsupportedOperationChecker
 import org.apache.spark.sql.execution.streaming._
@@ -39,6 +39,7 @@ import org.apache.spark.util.{Clock, SystemClock, Utils}
  * @since 2.0.0
  */
 @Experimental
+@InterfaceStability.Evolving
 class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 
   private[sql] val stateStoreCoordinator =
@@ -227,6 +228,12 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 
     if (sparkSession.sessionState.conf.isUnsupportedOperationCheckEnabled) {
       UnsupportedOperationChecker.checkForStreaming(analyzedPlan, outputMode)
+    }
+
+    if (sparkSession.sessionState.conf.adaptiveExecutionEnabled) {
+      throw new AnalysisException(
+        s"${SQLConf.ADAPTIVE_EXECUTION_ENABLED.key} " +
+          "is not supported in streaming DataFrames/Datasets")
     }
 
     new StreamingQueryWrapper(new StreamExecution(
