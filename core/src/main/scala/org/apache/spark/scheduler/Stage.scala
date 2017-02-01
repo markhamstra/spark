@@ -69,10 +69,12 @@ private[scheduler] abstract class Stage(
   val jobIds = new HashSet[Int]
 
   /**
-   * Partitions which there is not yet a task succeeded on. Note that for [[ShuffleMapStage]]
-   * pendingPartitions.size() == 0 doesn't mean the stage is available. Because the succeeded
-   * task can be bogus which is out of date and task's epoch is older than corresponding
-   * executor's failed epoch in [[DAGScheduler]].
+   * Partitions the [[DAGScheduler]] is waiting on before it tries to mark the stage / job as
+   * completed and continue. Tasks' successes in both the active taskset or earlier attempts
+   * for this stage can cause partition ids get removed from pendingPartitions. Finally, note
+   * that when this is empty, it does not necessarily mean that stage is completed -- Some of
+   * the map output from that stage may have been lost. But the [[DAGScheduler]] will check for
+   * this condition and resubmit the stage if necessary.
    */
   val pendingPartitions = new HashSet[Int]
 
