@@ -1193,11 +1193,10 @@ class DAGScheduler(
             }
             if (runningStages.contains(shuffleStage) && shuffleStage.pendingPartitions.isEmpty) {
               // Check if there is active TaskSetManager.
-              val activeTaskSetManagerOpt = Option(taskScheduler.rootPool).flatMap { rootPool =>
-                rootPool.getSortedTaskSetQueue.find { tsm =>
+              val activeTaskSetManagerOpt =
+                taskScheduler.rootPool.getSortedTaskSetQueue.find { tsm =>
                   tsm.stageId == stageId && !tsm.isZombie
                 }
-              }
               activeTaskSetManagerOpt.foreach { activeTsm =>
                 // The scheduler thinks we don't need any more partitions for this stage, but there
                 // is still an active taskset for the stage.  This can happen when there are stage
