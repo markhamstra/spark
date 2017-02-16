@@ -64,6 +64,15 @@
         <include>${spark.jar.basename}</include>
       </includes>
     </fileSet>
+    <fileSet>
+      <directory>
+        ${project.parent.basedir}/network/yarn/target/${shuffle.jar.dir}
+      </directory>
+      <outputDirectory></outputDirectory>
+      <includes>
+        <include>${spark.jar.basename}</include>
+      </includes>
+    </fileSet>
   </fileSets>
 
   <dependencySets>
