@@ -824,6 +824,16 @@ class DAGScheduler(
     listenerBus.post(SparkListenerTaskGettingResult(taskInfo))
   }
 
+  private[scheduler] implicit class JobGroupString(job: ActiveJob) {
+    def jobGroup: String = {
+      val jobGroupOpt = for {
+        properties <- Option(job.properties)
+        jobGroup <- Option(properties.get(SparkContext.SPARK_JOB_GROUP_ID)).map(_.toString)
+      } yield s"($jobGroup)"
+      jobGroupOpt.getOrElse("")
+    }
+  }
+
   private[scheduler] def handleJobSubmitted(jobId: Int,
       finalRDD: RDD[_],
       func: (TaskContext, Iterator[_]) => _,
@@ -846,7 +856,9 @@ class DAGScheduler(
     val job = new ActiveJob(jobId, finalStage, callSite, listener, properties)
     clearCacheLocs()
     logInfo("Got job %s (%s) with %d output partitions".format(
-      job.jobId, callSite.shortForm, partitions.length))
+      job.jobId + job.jobGroup,
+      callSite.shortForm,
+      partitions.length))
     logInfo("Final stage: " + finalStage + " (" + finalStage.name + ")")
     logInfo("Parents of final stage: " + finalStage.parents)
     logInfo("Missing parents: " + getMissingParentStages(finalStage))
@@ -884,7 +896,9 @@ class DAGScheduler(
     val job = new ActiveJob(jobId, finalStage, callSite, listener, properties)
     clearCacheLocs()
     logInfo("Got map stage job %s (%s) with %d output partitions".format(
-      jobId, callSite.shortForm, dependency.rdd.partitions.length))
+      jobId + job.jobGroup,
+      callSite.shortForm,
+      dependency.rdd.partitions.length))
     logInfo("Final stage: " + finalStage + " (" + finalStage.name + ")")
     logInfo("Parents of final stage: " + finalStage.parents)
     logInfo("Missing parents: " + getMissingParentStages(finalStage))

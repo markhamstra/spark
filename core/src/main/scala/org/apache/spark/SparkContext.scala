@@ -41,7 +41,7 @@ import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf, Sequence
 import org.apache.hadoop.mapreduce.{InputFormat => NewInputFormat, Job => NewHadoopJob}
 import org.apache.hadoop.mapreduce.lib.input.{FileInputFormat => NewFileInputFormat}
 
-import org.apache.spark.annotation.DeveloperApi
+import org.apache.spark.annotation.{DeveloperApi, Experimental}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.{LocalSparkCluster, SparkHadoopUtil}
 import org.apache.spark.input.{FixedLengthBinaryInputFormat, PortableDataStream, StreamInputFormat, WholeTextFileInputFormat}
@@ -2048,6 +2048,33 @@ class SparkContext(config: SparkConf) extends Logging {
       callSite,
       localProperties.get)
     new SimpleFutureAction[MapOutputStatistics](waiter, result)
+  }
+
+  /**
+   * :: Experimental ::
+   * Submit a job for execution, explicitly pass in the task context
+   * with the partition job and return a FutureJob holding the result.
+   */
+  @Experimental
+  def submitJobWithTaskContext[T, U, R](
+      rdd: RDD[T],
+      processPartition: (TaskContext, Iterator[T]) => U,
+      partitions: Seq[Int],
+      resultHandler: (Int, U) => Unit,
+      resultFunc: => R): SimpleFutureAction[R] =
+  {
+    val cleanF = clean(processPartition)
+    val callSite = getCallSite
+
+    val waiter = dagScheduler.submitJob(
+      rdd,
+      (context: TaskContext, iter: Iterator[T]) => cleanF(context, iter),
+      partitions,
+      callSite,
+      resultHandler,
+      localProperties.get)
+
+    new SimpleFutureAction(waiter, resultFunc)
   }
 
   /**
