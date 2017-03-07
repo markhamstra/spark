@@ -509,6 +509,59 @@ case class Pmod(left: Expression, right: Expression) extends BinaryArithmetic wi
   override def sql: String = s"$prettyName(${left.sql}, ${right.sql})"
 }
 
+@ExpressionDescription(
+  usage =
+    "_FUNC_(expr1, expr2) - Returns the float `expr1` mod `expr2` having the same sign as `expr1`.",
+  extended = """
+    Examples:
+      > SELECT _FUNC_(10.5, -3.0);
+       1.5
+      > SELECT _FUNC_(-10.5, -3.0);
+       -1.5
+  """)
+case class Fmod(left: Expression, right: Expression)
+  extends BinaryExpression with Serializable with ImplicitCastInputTypes {
+
+  override def inputTypes: Seq[DataType] = Seq(DoubleType, DoubleType)
+
+  override def toString: String = s"fmod($left, $right)"
+
+  override def dataType: DataType = DoubleType
+
+  override def eval(input: InternalRow): Any = {
+    val input2 = right.eval(input)
+    if (input2 == null || input2 == 0) {
+      null
+    } else {
+      val input1 = left.eval(input)
+      if (input1 == null) {
+        null
+      } else {
+        input1.asInstanceOf[Double] % input2.asInstanceOf[Double]
+      }
+    }
+  }
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val eval1 = left.genCode(ctx)
+    val eval2 = right.genCode(ctx)
+    ev.copy(code = s"""
+      ${eval2.code}
+      boolean ${ev.isNull} = ${eval2.isNull} || ${eval2.value} == 0;
+      ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+      if (!${ev.isNull}) {
+        ${eval1.code}
+        if (!${eval1.isNull}) {
+          ${ev.value} = ${eval1.value} % ${eval2.value};
+        } else {
+          ${ev.isNull} = true;
+        }
+      }
+    """)
+  }
+
+}
+
 /**
  * A function that returns the least value of all parameters, skipping null values.
  * It takes at least 2 parameters, and returns null iff all parameters are null.

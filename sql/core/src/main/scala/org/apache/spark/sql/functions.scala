@@ -1548,6 +1548,15 @@ object functions {
   def floor(columnName: String): Column = floor(Column(columnName))
 
   /**
+   * Computes a floating-point remainder value. The result has the same sign as the numerator.
+   *
+   * @group math_funcs
+   */
+  def fmod(numerator: Column, denominator: Column): Column = withExpr {
+    Fmod(numerator.expr, denominator.expr)
+  }
+
+  /**
    * Returns the greatest value of the list of values, skipping null values.
    * This function takes at least 2 parameters. It will return null iff all parameters are null.
    *

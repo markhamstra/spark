@@ -210,6 +210,7 @@ object FunctionRegistry {
     expression[UnaryMinus]("negative"),
     expression[Pi]("pi"),
     expression[Pmod]("pmod"),
+    expression[Fmod]("fmod"),
     expression[UnaryPositive]("positive"),
     expression[Pow]("pow"),
     expression[Pow]("power"),
