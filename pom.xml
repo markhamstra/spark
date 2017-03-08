@@ -2064,7 +2064,7 @@
             <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
             <junitxml>.</junitxml>
             <filereports>SparkTestSuite.txt</filereports>
-            <argLine>--enableassertions -Xmx3g</argLine>
+            <argLine>-enableassertions -Xmx3g</argLine>
             <stderr/>
             <environmentVariables>
               <!--
