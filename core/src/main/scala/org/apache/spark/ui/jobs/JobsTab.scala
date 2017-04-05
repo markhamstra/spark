@@ -33,4 +33,5 @@ private[ui] class JobsTab(parent: SparkUI) extends SparkUITab(parent, "jobs") {
 
   attachPage(new AllJobsPage(this))
   attachPage(new JobPage(this))
+  attachPage(new JobGroupPage(this))
 }

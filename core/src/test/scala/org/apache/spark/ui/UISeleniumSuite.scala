@@ -645,6 +645,44 @@ class UISeleniumSuite extends SparkFunSuite with WebBrowser with Matchers with B
     }
   }
 
+  test("jobs with job group id should show correct link to job group page on all jobs page") {
+    withSpark(newSparkContext()) { sc =>
+      val ui = sc.ui.get
+      // Once at least one job has been run in a job group, then we should display the link to
+      // job group page
+      val jobGroupId = "my-job-group"
+      sc.setJobGroup(jobGroupId, "my-job-group-description")
+      // Create an RDD that involves multiple stages:
+      val rdd =
+        sc.parallelize(Seq(1, 2, 3)).map(identity).groupBy(identity).map(identity).groupBy(identity)
+      // Run it twice; this will cause the second job to have two "phantom" stages that were
+      // mentioned in its job start event but which were never actually executed:
+      rdd.count()
+      eventually(timeout(10 seconds), interval(50 milliseconds)) {
+        goToUi(ui, "/jobs")
+        findAll(cssSelector("tbody tr")).foreach { row =>
+          val links = row.underlying.findElements(By.xpath(".//a"))
+          links.size should be (2)
+          links.get(0).getText().toLowerCase should include (jobGroupId)
+          links.get(0).getAttribute("href") should include regex (
+            s"(?=.*jobgroup)(?=.*${jobGroupId})")
+          links.get(1).getText().toLowerCase should include ("count")
+        }
+      }
+
+      eventually(timeout(10 seconds), interval(50 milliseconds)) {
+        goToUi(ui, s"/jobs/jobgroup/?id=${jobGroupId}")
+        find(id("pending")) should be (None)
+        find(id("active")) should be (None)
+        find(id("failed")) should be (None)
+        find(id("completed")).get.text should be ("Completed Jobs (1)")
+        findAll(cssSelector("tbody tr a")).foreach { link =>
+          link.text.toLowerCase should include ("count")
+        }
+      }
+    }
+  }
+
   def goToUi(sc: SparkContext, path: String): Unit = {
     goToUi(sc.ui.get, path)
   }
