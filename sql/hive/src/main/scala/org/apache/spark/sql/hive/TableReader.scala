@@ -22,7 +22,7 @@ import java.util.Properties
 import scala.collection.JavaConverters._
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{Path, PathFilter}
+import org.apache.hadoop.fs.{FileSystem, Path, PathFilter}
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants._
 import org.apache.hadoop.hive.ql.exec.Utilities
 import org.apache.hadoop.hive.ql.metadata.{Partition => HivePartition, Table => HiveTable}
@@ -65,6 +65,9 @@ class HadoopTableReader(
     @transient private val sparkSession: SparkSession,
     hadoopConf: Configuration)
   extends TableReader with Logging {
+
+  private val emptyStringsAsNulls =
+    sparkSession.conf.get("spark.sql.emptyStringsAsNulls", "false").toBoolean
 
   // Hadoop honors "mapred.map.tasks" as hint, but will ignore when mapred.job.tracker is "local".
   // https://hadoop.apache.org/docs/r1.0.4/mapred-default.html
@@ -112,12 +115,21 @@ class HadoopTableReader(
     val broadcastedHadoopConf = _broadcastedHadoopConf
 
     val tablePath = hiveTable.getPath
-    val inputPathStr = applyFilterIfNeeded(tablePath, filterOpt)
+    val fs = tablePath.getFileSystem(hadoopConf)
+    val externalCatalog = sparkSession.sharedState.externalCatalog
+    val inputPaths: Seq[String] = { externalCatalog match {
+        case hiveExternalCatalog: HiveExternalCatalog =>
+          hiveExternalCatalog.hadoopFileSelector.flatMap(
+            _.selectFiles(hiveTable.getTableName, fs, tablePath)
+          ).map(_.map(_.toString))
+        case _ => None
+      }
+    }.getOrElse(applyFilterIfNeeded(tablePath, filterOpt))
 
     // logDebug("Table input: %s".format(tablePath))
     val ifc = hiveTable.getInputFormatClass
       .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-    val hadoopRDD = createHadoopRdd(tableDesc, inputPathStr, ifc)
+    val hadoopRDD = createHadoopRdd(tableDesc, inputPaths, ifc)
 
     val attrsWithIndex = attributes.zipWithIndex
     val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
@@ -270,13 +282,12 @@ class HadoopTableReader(
    * If `filterOpt` is defined, then it will be used to filter files from `path`. These files are
    * returned in a single, comma-separated string.
    */
-  private def applyFilterIfNeeded(path: Path, filterOpt: Option[PathFilter]): String = {
+  private def applyFilterIfNeeded(path: Path, filterOpt: Option[PathFilter]): Seq[String] = {
     filterOpt match {
       case Some(filter) =>
         val fs = path.getFileSystem(hadoopConf)
-        val filteredFiles = fs.listStatus(path, filter).map(_.getPath.toString)
-        filteredFiles.mkString(",")
-      case None => path.toString
+        fs.listStatus(path, filter).map(_.getPath.toString)
+      case None => Seq(path.toString)
     }
   }
 
@@ -286,10 +297,10 @@ class HadoopTableReader(
    */
   private def createHadoopRdd(
     tableDesc: TableDesc,
-    path: String,
+    paths: Seq[String],
     inputFormatClass: Class[InputFormat[Writable, Writable]]): RDD[Writable] = {
 
-    val initializeJobConfFunc = HadoopTableReader.initializeLocalJobConfFunc(path, tableDesc) _
+    val initializeJobConfFunc = HadoopTableReader.initializeLocalJobConfFunc(paths, tableDesc) _
 
     val rdd = new HadoopRDD(
       sparkSession.sparkContext,
@@ -334,8 +345,8 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
    * Curried. After given an argument for 'path', the resulting JobConf => Unit closure is used to
    * instantiate a HadoopRDD.
    */
-  def initializeLocalJobConfFunc(path: String, tableDesc: TableDesc)(jobConf: JobConf) {
-    FileInputFormat.setInputPaths(jobConf, Seq[Path](new Path(path)): _*)
+  def initializeLocalJobConfFunc(paths: Seq[String], tableDesc: TableDesc)(jobConf: JobConf) {
+    FileInputFormat.setInputPaths(jobConf, paths.map { pathStr => new Path(pathStr) }: _*)
     if (tableDesc != null) {
       HiveTableUtil.configureJobPropertiesForStorageHandler(tableDesc, jobConf, true)
       Utilities.copyTableJobPropertiesToConf(tableDesc, jobConf)
@@ -440,4 +451,19 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
       mutableRow: InternalRow
     }
   }
+}
+
+abstract class HadoopFileSelector {
+  /**
+   * Select files constituting a table from the given base path according to the client's custom
+   * algorithm. This is only applied to non-partitioned tables.
+   * @param tableName table name to select files for. This is the exact table name specified
+   *                  in the query, not a "preprocessed" file name returned by the user-defined
+   *                  function registered via [[HiveExternalCatalog.setTableNamePreprocessor]].
+   * @param fs the filesystem containing the table
+   * @param basePath base path of the table in the filesystem
+   * @return a set of files, or [[None]] if the custom file selection algorithm does not apply
+   *         to this table.
+   */
+  def selectFiles(tableName: String, fs: FileSystem, basePath: Path): Option[Seq[Path]]
 }
