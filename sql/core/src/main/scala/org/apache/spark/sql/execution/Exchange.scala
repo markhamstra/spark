@@ -275,6 +275,7 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
 
   private def targetPostShuffleInputSize: Long = sqlContext.conf.targetPostShuffleInputSize
 
+  // TODO: Should we disable this from local property or from configuration?
   private def adaptiveExecutionEnabled: Boolean = sqlContext.conf.adaptiveExecutionEnabled
 
   private def adaptiveExecutionDisabledForJoin: Boolean =
@@ -481,11 +482,11 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
     // Once we finish https://issues.apache.org/jira/browse/SPARK-10665,
     // we can first add Exchanges and then add coordinator once we have a DAG of query fragments.
 
-    // We have observed some performance degrading when enabling adaptive execution in performing
-    // joining. When doing joining, it is hard to predict how many results it will generate.
-    // Sometimes the estimation is within the limit of the postShuffleSize estimation, and it causes
-    // only one partition and makes the performance bad. We will disable adaptive execution for
-    // joining now till we figure out a better way of estimation
+    // We have observed some performance issue when enabling adaptive execution in performing
+    // joining. It is hard to predict how many results the joining will produce. When the estimation
+    // from previous stage is within the postShuffleSize estimation, it will produce only one
+    // partition and makes the performance bad. We will disable adaptive execution for
+    // joining now till we figure out a better way of size estimation in joining.
     val disableAdaptiveExecutionForJoin =
       (operator.isInstanceOf[SortMergeJoin] || operator.isInstanceOf[SortMergeOuterJoin]) &&
         adaptiveExecutionEnabled && adaptiveExecutionDisabledForJoin
