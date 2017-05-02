@@ -30,6 +30,7 @@ import org.apache.spark.sql.catalyst.errors.attachTree
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.joins.{SortMergeJoin, SortMergeOuterJoin}
 import org.apache.spark.util.MutablePair
 
 /**
@@ -43,9 +44,9 @@ case class Exchange(
   override def nodeName: String = {
     val extraInfo = coordinator match {
       case Some(exchangeCoordinator) if exchangeCoordinator.isEstimated =>
-        s"(coordinator id: ${System.identityHashCode(coordinator)})"
+        s"(coordinator id: ${System.identityHashCode(exchangeCoordinator)})"
       case Some(exchangeCoordinator) if !exchangeCoordinator.isEstimated =>
-        s"(coordinator id: ${System.identityHashCode(coordinator)})"
+        s"(coordinator id: ${System.identityHashCode(exchangeCoordinator)})"
       case None => ""
     }
 
@@ -274,7 +275,11 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
 
   private def targetPostShuffleInputSize: Long = sqlContext.conf.targetPostShuffleInputSize
 
+  // TODO: Should we disable this from local property or from configuration?
   private def adaptiveExecutionEnabled: Boolean = sqlContext.conf.adaptiveExecutionEnabled
+
+  private def adaptiveExecutionDisabledForJoin: Boolean =
+    sqlContext.conf.adaptiveExecutionDisabledForJoining
 
   private def minNumPostShufflePartitions: Option[Int] = {
     val minNumPostShufflePartitions = sqlContext.conf.minNumPostShufflePartitions
@@ -301,7 +306,8 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
    */
   private def withExchangeCoordinator(
       children: Seq[SparkPlan],
-      requiredChildDistributions: Seq[Distribution]): Seq[SparkPlan] = {
+      requiredChildDistributions: Seq[Distribution],
+      disableAdaptiveExecution: Boolean = false): Seq[SparkPlan] = {
     val supportsCoordinator =
       if (children.exists(_.isInstanceOf[Exchange])) {
         // Right now, ExchangeCoordinator only support HashPartitionings.
@@ -326,7 +332,7 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
       }
 
     val withCoordinator =
-      if (adaptiveExecutionEnabled && supportsCoordinator) {
+      if (adaptiveExecutionEnabled && !disableAdaptiveExecution && supportsCoordinator) {
         val coordinator =
           new ExchangeCoordinator(
             children.length,
@@ -475,7 +481,18 @@ private[sql] case class EnsureRequirements(sqlContext: SQLContext) extends Rule[
     // at here for now.
     // Once we finish https://issues.apache.org/jira/browse/SPARK-10665,
     // we can first add Exchanges and then add coordinator once we have a DAG of query fragments.
-    children = withExchangeCoordinator(children, requiredChildDistributions)
+
+    // We have observed some performance issue when enabling adaptive execution in performing
+    // joining. It is hard to predict how many results the joining will produce. When the estimation
+    // from previous stage is within the postShuffleSize estimation, it will produce only one
+    // partition and makes the performance bad. We will disable adaptive execution for
+    // joining now till we figure out a better way of size estimation in joining.
+    val disableAdaptiveExecutionForJoin =
+      (operator.isInstanceOf[SortMergeJoin] || operator.isInstanceOf[SortMergeOuterJoin]) &&
+        adaptiveExecutionEnabled && adaptiveExecutionDisabledForJoin
+
+    children =
+      withExchangeCoordinator(children, requiredChildDistributions, disableAdaptiveExecutionForJoin)
 
     // Now that we've performed any necessary shuffles, add sorts to guarantee output orderings:
     children = children.zip(requiredChildOrderings).map { case (child, requiredOrdering) =>

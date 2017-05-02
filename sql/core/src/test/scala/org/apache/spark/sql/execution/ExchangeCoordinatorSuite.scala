@@ -18,11 +18,13 @@
 package org.apache.spark.sql.execution
 
 import org.scalatest.BeforeAndAfterAll
-
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.test.TestSQLContext
 import org.apache.spark.sql._
-import org.apache.spark.{SparkFunSuite, SparkContext, SparkConf, MapOutputStatistics}
+import org.apache.spark.sql.execution.joins.{SortMergeJoin, SortMergeOuterJoin}
+import org.apache.spark.{MapOutputStatistics, SparkConf, SparkContext, SparkFunSuite}
+
+import scala.collection.mutable
 
 class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
 
@@ -251,7 +253,8 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
   def withSQLContext(
       f: SQLContext => Unit,
       targetNumPostShufflePartitions: Int,
-      minNumPostShufflePartitions: Option[Int]): Unit = {
+      minNumPostShufflePartitions: Option[Int],
+      adaptiveExecutionDisabledForJoin: Boolean = false): Unit = {
     val sparkConf =
       new SparkConf(false)
         .setMaster("local[*]")
@@ -263,6 +266,9 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
         .set(
           SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key,
           targetNumPostShufflePartitions.toString)
+    if (adaptiveExecutionDisabledForJoin) {
+      sparkConf.set(SQLConf.ADAPTIVE_EXECUTION_DISABLED_FOR_JOINING.key, "true")
+    }
     minNumPostShufflePartitions match {
       case Some(numPartitions) =>
         sparkConf.set(SQLConf.SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS.key, numPartitions.toString)
@@ -474,6 +480,84 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
       }
 
       withSQLContext(test, 6144, minNumPostShufflePartitions)
+    }
+
+    test(s"adaptive execution disabled for joining: complex query 3$testNameNote") {
+      val test = { sqlContext: SQLContext =>
+        val df1 =
+          sqlContext
+            .range(0, 1000, 1, numInputPartitions)
+            .selectExpr("id % 500 as key1", "id as value1")
+            .groupBy("key1")
+            .count()
+            .toDF("key1", "cnt1")
+        val df2 =
+          sqlContext
+            .range(0, 1000, 1, numInputPartitions)
+            .selectExpr("id % 500 as key2", "id as value2")
+
+        val join =
+          df1
+            .join(df2, col("key1") === col("key2"))
+            .select(col("key1"), col("cnt1"), col("value2"))
+
+        // Check the answer first.
+        val expectedAnswer =
+          sqlContext
+            .range(0, 1000)
+            .selectExpr("id % 500 as key", "2 as cnt", "id as value")
+        checkAnswer(
+          join,
+          expectedAnswer.collect())
+
+        // Verify that adaptive execution is disabled for SortMergeOuterJoin and SortMergeJoin but
+        // not for others
+        val executedPlan = join.queryExecution.executedPlan
+        val verified = new mutable.HashSet[SparkPlan]
+        val waitingToVerify = new mutable.Stack[(SparkPlan, Boolean)]
+        def verify(plan: SparkPlan, childOfJoin: Boolean): Unit = {
+          if (!verified(plan)) {
+            verified += plan
+            plan match {
+              case SortMergeOuterJoin(_, _, _, _, left, right) =>
+                waitingToVerify.push((left, true))
+                waitingToVerify.push((right, true))
+              case SortMergeJoin(_, _, left, right) =>
+                waitingToVerify.push((left, true))
+                waitingToVerify.push((right, true))
+              case Exchange(newPartitioning, child, coordinator) =>
+                if (childOfJoin) {
+                  assert(coordinator.isEmpty)
+                  waitingToVerify.push((child, false))
+                } else {
+                  minNumPostShufflePartitions match {
+                    case Some(_) =>
+                      assert(coordinator.isDefined)
+                      assert(newPartitioning.numPartitions === 5)
+                    case None =>
+                      assert(coordinator.isDefined)
+                  }
+                  waitingToVerify.push((child, false))
+                }
+              case _ =>
+                plan.children.foreach { child =>
+                  waitingToVerify.push((child, childOfJoin))
+                }
+            }
+          }
+        }
+        waitingToVerify.push((executedPlan, false))
+        while(waitingToVerify.nonEmpty) {
+          val (plan, childOfJoin) = waitingToVerify.pop()
+          verify(plan, childOfJoin)
+        }
+      }
+
+      withSQLContext(
+        test,
+        6144,
+        minNumPostShufflePartitions,
+        adaptiveExecutionDisabledForJoin = true)
     }
   }
 }
