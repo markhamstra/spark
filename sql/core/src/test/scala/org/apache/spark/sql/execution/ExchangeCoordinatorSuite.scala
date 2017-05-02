@@ -489,7 +489,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
             .range(0, 1000, 1, numInputPartitions)
             .selectExpr("id % 500 as key1", "id as value1")
             .groupBy("key1")
-            .count
+            .count()
             .toDF("key1", "cnt1")
         val df2 =
           sqlContext
@@ -510,8 +510,8 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
           join,
           expectedAnswer.collect())
 
-        // Verify that there is adaptive execution is disabled for SortMergeOuterJoin and SortMergeJoin
-        // but not for others
+        // Verify that adaptive execution is disabled for SortMergeOuterJoin and SortMergeJoin but
+        // not for others
         val executedPlan = join.queryExecution.executedPlan
         val verified = new mutable.HashSet[SparkPlan]
         val waitingToVerify = new mutable.Stack[(SparkPlan, Boolean)]
@@ -519,19 +519,19 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
           if (!verified(plan)) {
             verified += plan
             plan match {
-              case SortMergeOuterJoin(leftKeys, rightKeys, joinType, condition, left, right) =>
+              case SortMergeOuterJoin(_, _, _, _, left, right) =>
                 waitingToVerify.push((left, true))
                 waitingToVerify.push((right, true))
-              case SortMergeJoin(leftKeys, rightKeys, left, right) =>
+              case SortMergeJoin(_, _, left, right) =>
                 waitingToVerify.push((left, true))
                 waitingToVerify.push((right, true))
               case Exchange(newPartitioning, child, coordinator) =>
                 if (childOfJoin) {
-                  assert(coordinator isEmpty)
+                  assert(coordinator.isEmpty)
                   waitingToVerify.push((child, false))
                 } else {
                   minNumPostShufflePartitions match {
-                    case Some(numPartitions) =>
+                    case Some(_) =>
                       assert(coordinator.isDefined)
                       assert(newPartitioning.numPartitions === 5)
                     case None =>
@@ -553,7 +553,11 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
         }
       }
 
-      withSQLContext(test, 6144, minNumPostShufflePartitions, true)
+      withSQLContext(
+        test,
+        6144,
+        minNumPostShufflePartitions,
+        adaptiveExecutionDisabledForJoin = true)
     }
   }
 }
