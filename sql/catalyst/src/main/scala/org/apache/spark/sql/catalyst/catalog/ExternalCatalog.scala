@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.catalog
 
 import org.apache.spark.sql.catalyst.analysis.{FunctionAlreadyExistsException, NoSuchDatabaseException, NoSuchFunctionException, NoSuchTableException}
+import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.HadoopFileSelector
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.types.StructType
 
@@ -268,4 +269,9 @@ abstract class ExternalCatalog {
 
   def listFunctions(db: String, pattern: String): Seq[String]
 
+  def setTableNamePreprocessor(newTableNamePreprocessor: (String) => String): Unit
+
+  def setHadoopFileSelector(hadoopFileSelector: HadoopFileSelector): Unit
+
+  def unsetHadoopFileSelector(): Unit
 }

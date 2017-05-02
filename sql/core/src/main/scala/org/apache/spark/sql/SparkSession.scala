@@ -34,6 +34,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd}
 import org.apache.spark.sql.catalog.Catalog
 import org.apache.spark.sql.catalyst._
+import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.HadoopFileSelector
 import org.apache.spark.sql.catalyst.encoders._
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Range}
@@ -576,6 +577,18 @@ class SparkSession private(
 
   private[sql] def table(tableIdent: TableIdentifier): DataFrame = {
     Dataset.ofRows(self, sessionState.catalog.lookupRelation(tableIdent))
+  }
+
+  def setTableNamePreprocessor(newTableNamePreprocessor: (String) => String): Unit = {
+    sharedState.externalCatalog.setTableNamePreprocessor(newTableNamePreprocessor)
+  }
+
+  def setHadoopFileSelector(hadoopFileSelector: HadoopFileSelector): Unit = {
+    sharedState.externalCatalog.setHadoopFileSelector(hadoopFileSelector)
+  }
+
+  def unsetHadoopFileSelector(): Unit = {
+    sharedState.externalCatalog.unsetHadoopFileSelector()
   }
 
   /* ----------------- *

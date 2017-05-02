@@ -28,7 +28,7 @@ import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.sql.catalyst.analysis._
-import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.escapePathName
+import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.{escapePathName, HadoopFileSelector}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.util.StringUtils
 import org.apache.spark.sql.types.StructType
@@ -598,5 +598,11 @@ class InMemoryCatalog(
     requireDbExists(db)
     StringUtils.filterPattern(catalog(db).functions.keysIterator.toSeq, pattern)
   }
+
+  override def setTableNamePreprocessor(newTableNamePreprocessor: (String) => String): Unit = {}
+
+  override def setHadoopFileSelector(hadoopFileSelector: HadoopFileSelector): Unit = {}
+
+  override def unsetHadoopFileSelector(): Unit = {}
 
 }

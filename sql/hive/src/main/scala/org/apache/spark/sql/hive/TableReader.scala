@@ -453,17 +453,3 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
   }
 }
 
-abstract class HadoopFileSelector {
-  /**
-   * Select files constituting a table from the given base path according to the client's custom
-   * algorithm. This is only applied to non-partitioned tables.
-   * @param tableName table name to select files for. This is the exact table name specified
-   *                  in the query, not a "preprocessed" file name returned by the user-defined
-   *                  function registered via [[HiveExternalCatalog.setTableNamePreprocessor]].
-   * @param fs the filesystem containing the table
-   * @param basePath base path of the table in the filesystem
-   * @return a set of files, or [[None]] if the custom file selection algorithm does not apply
-   *         to this table.
-   */
-  def selectFiles(tableName: String, fs: FileSystem, basePath: Path): Option[Seq[Path]]
-}
