@@ -142,7 +142,7 @@ case class DistinctAggregationRewriter(conf: CatalystConf) extends Rule[LogicalP
 
       // Setup unique distinct aggregate children.
       val distinctAggChildren = distinctAggGroups.keySet.flatten.toSeq.distinct
-      val distinctAggChildAttrMap = distinctAggChildren.map(expressionAttributePair)
+      val distinctAggChildAttrMap = distinctAggChildren.flatMap(expressionAttributePair)
       val distinctAggChildAttrs = distinctAggChildAttrMap.map(_._2)
 
       // Setup expand & aggregate operators for distinct aggregate expressions.
@@ -161,7 +161,7 @@ case class DistinctAggregationRewriter(conf: CatalystConf) extends Rule[LogicalP
           val operators = expressions.map { e =>
             val af = e.aggregateFunction
             val naf = patchAggregateFunctionChildren(af) { x =>
-              evalWithinGroup(id, distinctAggChildAttrLookup(x))
+              evalWithinGroup(id, distinctAggChildAttrLookup.getOrElse(x, x))
             }
             (e, e.copy(aggregateFunction = naf, isDistinct = false))
           }
@@ -172,14 +172,16 @@ case class DistinctAggregationRewriter(conf: CatalystConf) extends Rule[LogicalP
       // Setup expand for the 'regular' aggregate expressions.
       val regularAggExprs = aggExpressions.filter(!_.isDistinct)
       val regularAggChildren = regularAggExprs.flatMap(_.aggregateFunction.children).distinct
-      val regularAggChildAttrMap = regularAggChildren.map(expressionAttributePair)
+      val regularAggChildAttrMap = regularAggChildren.flatMap(expressionAttributePair)
 
       // Setup aggregates for 'regular' aggregate expressions.
       val regularGroupId = Literal(0)
       val regularAggChildAttrLookup = regularAggChildAttrMap.toMap
       val regularAggOperatorMap = regularAggExprs.map { e =>
         // Perform the actual aggregation in the initial aggregate.
-        val af = patchAggregateFunctionChildren(e.aggregateFunction)(regularAggChildAttrLookup)
+        val af = patchAggregateFunctionChildren(e.aggregateFunction) { x =>
+          regularAggChildAttrLookup.getOrElse(x, x)
+        }
         val operator = Alias(e.copy(aggregateFunction = af), e.prettyString)()
 
         // Select the result of the first aggregate in the last aggregate.
@@ -260,10 +262,15 @@ case class DistinctAggregationRewriter(conf: CatalystConf) extends Rule[LogicalP
 
   private def nullify(e: Expression) = Literal.create(null, e.dataType)
 
-  private def expressionAttributePair(e: Expression) =
+  private def expressionAttributePair(e: Expression) = {
     // We are creating a new reference here instead of reusing the attribute in case of a
     // NamedExpression. This is done to prevent collisions between distinct and regular aggregate
     // children, in this case attribute reuse causes the input of the regular aggregate to bound to
     // the (nulled out) input of the distinct aggregate.
-    e -> new AttributeReference(e.prettyString, e.dataType, true)()
+    e match {
+      case x: Literal => None
+      case x => Some(e -> new AttributeReference(e.prettyString, e.dataType, true)())
+
+    }
+  }
 }
