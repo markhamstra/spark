@@ -1093,6 +1093,8 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
     tableNamePreprocessor = newTableNamePreprocessor
   }
 
+  def getTableNamePreprocessor: (String) => String = tableNamePreprocessor
+
   /**
    * Allows to register a custom way to select files/directories to be included in a table scan
    * based on the table name. This can be used together with [[setTableNamePreprocessor]] to
@@ -1116,6 +1118,7 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
     hadoopFileSelector = None
   }
 
+  override def findHadoopFileSelector: Option[HadoopFileSelector] = hadoopFileSelector
 }
 
 object HiveExternalCatalog {

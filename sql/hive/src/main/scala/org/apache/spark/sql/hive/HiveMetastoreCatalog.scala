@@ -120,9 +120,12 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
   def lookupRelation(
       tableIdent: TableIdentifier,
       alias: Option[String]): LogicalPlan = {
+    val tableNamePreprocessor = sparkSession.sharedState.externalCatalog.getTableNamePreprocessor
+    val rawTableName = tableIdent.table
+    val tblNameInMetastore = tableNamePreprocessor(rawTableName)
     val qualifiedTableName = getQualifiedTableName(tableIdent)
     val table = sparkSession.sharedState.externalCatalog.getTable(
-      qualifiedTableName.database, qualifiedTableName.name)
+      qualifiedTableName.database, tblNameInMetastore).withTableName(qualifiedTableName.name)
 
     if (DDLUtils.isDatasourceTable(table)) {
       val dataSourceTable = cachedDataSourceTables(qualifiedTableName)
@@ -272,9 +275,12 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       })
     } else {
       val rootPath = metastoreRelation.hiveQlTable.getDataLocation
+      val paths: Seq[Path] = if (fileType != "parquet") { Seq(rootPath) } else {
+        selectParquetLocationDirectories(metastoreRelation.tableName, rootPath)
+      }
       withTableCreationLock(tableIdentifier, {
         val cached = getCached(tableIdentifier,
-          Seq(rootPath),
+          paths,
           metastoreRelation,
           metastoreSchema,
           fileFormatClass,
@@ -301,6 +307,36 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       })
     }
     result.copy(expectedOutputAttributes = Some(metastoreRelation.output))
+  }
+
+  /**
+   * Customizing the data directory selection by using hadoopFileSelector.
+   *
+   * The value of locationOpt will be returned as single element sequence if
+   * 1. the hadoopFileSelector is not defined or
+   * 2. locationOpt is not defined or
+   * 3. the selected directories are empty.
+   *
+   * Otherwise, the non-empty selected directories will be returned.
+   */
+  private[hive] def selectParquetLocationDirectories(
+      tableName: String,
+      location: Path): Seq[Path] = {
+
+    val inputPaths: Option[Seq[Path]] = for {
+      selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
+      newLocation = new Path(location.toString)
+      fs = newLocation.getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
+      selectedPaths <- selector.selectFiles(tableName, fs, newLocation)
+      selectedDir = for {
+        selectedPath <- selectedPaths
+        if selectedPath
+          .getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
+          .isDirectory(selectedPath)
+      } yield selectedPath
+      if selectedDir.nonEmpty
+    } yield selectedDir
+    inputPaths.getOrElse(Seq(location))
   }
 
   private def inferIfNeeded(

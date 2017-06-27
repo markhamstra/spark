@@ -601,8 +601,11 @@ class InMemoryCatalog(
 
   override def setTableNamePreprocessor(newTableNamePreprocessor: (String) => String): Unit = {}
 
+  def getTableNamePreprocessor: (String) => String = identity
+
   override def setHadoopFileSelector(hadoopFileSelector: HadoopFileSelector): Unit = {}
 
   override def unsetHadoopFileSelector(): Unit = {}
 
+  override def findHadoopFileSelector: Option[HadoopFileSelector] = None
 }

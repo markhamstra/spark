@@ -271,7 +271,11 @@ abstract class ExternalCatalog {
 
   def setTableNamePreprocessor(newTableNamePreprocessor: (String) => String): Unit
 
+  def getTableNamePreprocessor: (String) => String
+
   def setHadoopFileSelector(hadoopFileSelector: HadoopFileSelector): Unit
 
   def unsetHadoopFileSelector(): Unit
+
+  def findHadoopFileSelector: Option[HadoopFileSelector]
 }

@@ -219,6 +219,9 @@ case class CatalogTable(
       locationUri, inputFormat, outputFormat, serde, compressed, properties))
   }
 
+  def withTableName(newName: String): CatalogTable =
+    copy(identifier = identifier.copy(table = newName))
+
   override def toString: String = {
     val tableProperties = properties.map(p => p._1 + "=" + p._2).mkString("[", ", ", "]")
     val partitionColumns = partitionColumnNames.map(quoteIdentifier).mkString("[", ", ", "]")
