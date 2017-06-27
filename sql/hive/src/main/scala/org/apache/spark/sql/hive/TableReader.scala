@@ -134,11 +134,13 @@ class HadoopTableReader(
     val attrsWithIndex = attributes.zipWithIndex
     val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
 
+    val localEmptyStringsAsNulls = emptyStringsAsNulls  // for serializability
     val deserializedHadoopRDD = hadoopRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
       deserializer.initialize(hconf, tableDesc.getProperties)
-      HadoopTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer)
+      HadoopTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer,
+        localEmptyStringsAsNulls)
     }
 
     deserializedHadoopRDD
@@ -247,6 +249,7 @@ class HadoopTableReader(
 
       val tableProperties = relation.tableDesc.getProperties
 
+      val localEmptyStringsAsNulls = emptyStringsAsNulls  // for serializability
       createHadoopRdd(tableDesc, inputPathStr, ifc).mapPartitions { iter =>
         val hconf = broadcastedHiveConf.value.value
         val deserializer = localDeserializer.newInstance()
@@ -266,7 +269,7 @@ class HadoopTableReader(
 
         // fill the non partition key attributes
         HadoopTableReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
-          mutableRow, tableSerDe)
+          mutableRow, tableSerDe, localEmptyStringsAsNulls)
       }
     }.toSeq
 
@@ -364,6 +367,7 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
    *                             positions in the output schema
    * @param mutableRow A reusable `MutableRow` that should be filled
    * @param tableDeser Table Deserializer
+   * @param emptyStringsAsNulls whether to treat empty strings as nulls
    * @return An `Iterator[Row]` transformed from `iterator`
    */
   def fillObject(
@@ -371,7 +375,8 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
       rawDeser: Deserializer,
       nonPartitionKeyAttrs: Seq[(Attribute, Int)],
       mutableRow: InternalRow,
-      tableDeser: Deserializer): Iterator[InternalRow] = {
+      tableDeser: Deserializer,
+      emptyStringsAsNulls: Boolean): Iterator[InternalRow] = {
 
     val soi = if (rawDeser.getObjectInspector.equals(tableDeser.getObjectInspector)) {
       rawDeser.getObjectInspector.asInstanceOf[StructObjectInspector]
@@ -407,9 +412,27 @@ private[hive] object HadoopTableReader extends HiveInspectors with Logging {
           (value: Any, row: InternalRow, ordinal: Int) => row.setFloat(ordinal, oi.get(value))
         case oi: DoubleObjectInspector =>
           (value: Any, row: InternalRow, ordinal: Int) => row.setDouble(ordinal, oi.get(value))
+        case oi: HiveVarcharObjectInspector if emptyStringsAsNulls =>
+          (value: Any, row: InternalRow, ordinal: Int) => {
+            val strValue = UTF8String.fromString(oi.getPrimitiveJavaObject(value).getValue)
+            if (strValue == UTF8String.EMPTY_UTF8) {
+              row.update(ordinal, null)
+            } else {
+              row.update(ordinal, strValue)
+            }
+          }
         case oi: HiveVarcharObjectInspector =>
           (value: Any, row: InternalRow, ordinal: Int) =>
             row.update(ordinal, UTF8String.fromString(oi.getPrimitiveJavaObject(value).getValue))
+        case oi: StringObjectInspector if emptyStringsAsNulls =>
+          (value: Any, row: InternalRow, ordinal: Int) => {
+            val strValue = UTF8String.fromString(oi.getPrimitiveJavaObject(value))
+            if (strValue == UTF8String.EMPTY_UTF8) {
+              row.update(ordinal, null)
+            } else {
+              row.update(ordinal, strValue)
+            }
+          }
         case oi: HiveCharObjectInspector =>
           (value: Any, row: InternalRow, ordinal: Int) =>
             row.update(ordinal, UTF8String.fromString(oi.getPrimitiveJavaObject(value).getValue))
