@@ -274,11 +274,17 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
         logicalRelation
       })
     } else {
-      val rootPath = Option(metastoreRelation.hiveQlTable.getDataLocation.toString)
-      val paths: Seq[Path] = if (fileType != "parquet") { Seq(new Path(rootPath.orNull)) } else {
-        selectParquetLocationDirectories(metastoreRelation.tableName, rootPath)
+      val rootPath = metastoreRelation.hiveQlTable.getDataLocation
+//      val rootPath = Option(metastoreRelation.hiveQlTable.getDataLocation.toString)
+//      assert(!rootPath.get.startsWith("file:"))
+      val paths: Seq[Path] = if (fileType != "parquet") { Seq(rootPath) } else {
+        selectParquetLocationDirectories(metastoreRelation.tableName, Option(rootPath.toString))
           .map{ s => new Path(s) }
       }
+      // scalastyle:off
+      println("\n\n\n***MEH")
+      paths.foreach { p => println(p.toString) }
+      println("\n\n\n")
       withTableCreationLock(tableIdentifier, {
         val cached = getCached(tableIdentifier,
           paths,
