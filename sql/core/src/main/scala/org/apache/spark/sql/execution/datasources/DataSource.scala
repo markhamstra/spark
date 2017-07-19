@@ -130,7 +130,7 @@ case class DataSource(
         val qualified = hdfsPath.makeQualified(fs.getUri, fs.getWorkingDirectory)
         SparkHadoopUtil.get.globPathIfNecessary(qualified)
       }.toArray
-      new InMemoryFileIndex(sparkSession, globbedPaths, options, None)
+      new InMemoryFileIndex(sparkSession, globbedPaths, options, None) // MEH
     }
     val partitionSchema = if (partitionColumns.isEmpty) {
       // Try to infer partitioning, because no DataSource in the read path provides the partitioning
@@ -394,7 +394,7 @@ case class DataSource(
             catalogTable.get,
             catalogTable.get.stats.map(_.sizeInBytes.toLong).getOrElse(defaultTableSize))
         } else {
-          new InMemoryFileIndex(sparkSession, globbedPaths, options, Some(partitionSchema))
+          new InMemoryFileIndex(sparkSession, globbedPaths, options, Some(partitionSchema)) // MEH
         }
 
         HadoopFsRelation(

@@ -275,16 +275,12 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       })
     } else {
       val rootPath = metastoreRelation.hiveQlTable.getDataLocation
-//      val rootPath = Option(metastoreRelation.hiveQlTable.getDataLocation.toString)
-//      assert(!rootPath.get.startsWith("file:"))
-      val paths: Seq[Path] = if (fileType != "parquet") { Seq(rootPath) } else {
-        selectParquetLocationDirectories(metastoreRelation.tableName, Option(rootPath.toString))
-          .map{ s => new Path(s) }
-      }
-      // scalastyle:off
-      println("\n\n\n***MEH")
-      paths.foreach { p => println(p.toString) }
-      println("\n\n\n")
+      val paths: Seq[Path] =
+        if (fileType != "parquet") {
+          Seq(rootPath)
+        } else {
+          selectParquetLocationDirectories(metastoreRelation.tableName, Option(rootPath))
+        }
       withTableCreationLock(tableIdentifier, {
         val cached = getCached(tableIdentifier,
           paths,
@@ -299,7 +295,7 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
             LogicalRelation(
               DataSource(
                 sparkSession = sparkSession,
-                paths = rootPath.toString :: Nil,
+                paths = paths.map(_.toString),
                 userSpecifiedSchema = Option(dataSchema),
                 bucketSpec = bucketSpec,
                 options = options,
@@ -316,35 +312,24 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
     result.copy(expectedOutputAttributes = Some(metastoreRelation.output))
   }
 
-  /**
-   * Customizing the data directory selection by using hadoopFileSelector.
-   *
-   * The value of locationOpt will be returned as single element sequence if
-   * 1. the hadoopFileSelector is not defined or
-   * 2. locationOpt is not defined or
-   * 3. the selected directories are empty.
-   *
-   * Otherwise, the non-empty selected directories will be returned.
-   */
   private[hive] def selectParquetLocationDirectories(
       tableName: String,
-      locationOpt: Option[String]): Seq[String] = {
-
-    val inputPaths: Option[Seq[String]] = for {
+      locationOpt: Option[Path]): Seq[Path] = {
+    val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
+    val paths: Option[Seq[Path]] = for {
       selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
-      l <- locationOpt
-      location = new Path(l)
-      fs = location.getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
+      location <- locationOpt
+      fs = location.getFileSystem(hadoopConf)
       selectedPaths <- selector.selectFiles(tableName, fs, location)
       selectedDir = for {
         selectedPath <- selectedPaths
         if selectedPath
-          .getFileSystem(sparkSession.sparkContext.hadoopConfiguration)
+          .getFileSystem(hadoopConf)
           .isDirectory(selectedPath)
-      } yield selectedPath.toString
+      } yield selectedPath
       if selectedDir.nonEmpty
     } yield selectedDir
-    inputPaths.getOrElse(Seq(locationOpt.orNull))
+    paths.getOrElse(Seq(locationOpt.orNull))
   }
 
   private def inferIfNeeded(

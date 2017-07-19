@@ -222,16 +222,16 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
     val somewhereSometable = new File(fullpath("somewhere", "sometable"))
     somewhereSometable.mkdirs()
     // somewhere/sometable is a directory => will be selected
-    assertResult(Seq(fullpath("somewhere", "sometable"))) {
-      hmc.selectParquetLocationDirectories("sometable", Option("somewhere"))
+    assertResult(Seq(new Path(fullpath("somewhere", "sometable")))) {
+      hmc.selectParquetLocationDirectories("sometable", Option(new Path("somewhere")))
     }
 
     // ensure file existence for somewhere/sometable
     somewhereSometable.delete()
     somewhereSometable.createNewFile()
     // somewhere/sometable is a file => will not be selected
-    assertResult(Seq("somewhere")) {
-      hmc.selectParquetLocationDirectories("otherplace", Option("somewhere"))
+    assertResult(Seq(new Path("somewhere"))) {
+      hmc.selectParquetLocationDirectories("otherplace", Option(new Path("somewhere")))
     }
 
     // no location specified, none selected
@@ -249,8 +249,8 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
     })
 
     // none selected
-    assertResult(Seq("somewhere")) {
-      hmc.selectParquetLocationDirectories("sometable", Option("somewhere"))
+    assertResult(Seq(new Path("somewhere"))) {
+      hmc.selectParquetLocationDirectories("sometable", Option(new Path("somewhere")))
     }
     // none selected
     assertResult(Seq(null)) {
@@ -262,8 +262,8 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
     spark.sharedState.externalCatalog.unsetHadoopFileSelector()
 
     // none selected
-    assertResult(Seq("somewhere")) {
-      hmc.selectParquetLocationDirectories("sometable", Option("somewhere"))
+    assertResult(Seq(new Path("somewhere"))) {
+      hmc.selectParquetLocationDirectories("sometable", Option(new Path("somewhere")))
     }
     // none selected
     assertResult(Seq(null)) {

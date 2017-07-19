@@ -17,11 +17,14 @@
 
 package org.apache.spark.sql.execution
 
+import scala.collection.mutable
+
 import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.{MapOutputStatistics, SparkConf, SparkFunSuite}
 import org.apache.spark.sql._
 import org.apache.spark.sql.execution.exchange.{ExchangeCoordinator, ShuffleExchange}
+import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 
@@ -252,7 +255,8 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
   def withSparkSession(
       f: SparkSession => Unit,
       targetNumPostShufflePartitions: Int,
-      minNumPostShufflePartitions: Option[Int]): Unit = {
+      minNumPostShufflePartitions: Option[Int],
+      adaptiveExecutionDisabledForJoin: Boolean = false): Unit = {
     val sparkConf =
       new SparkConf(false)
         .setMaster("local[*]")
@@ -265,6 +269,9 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
         .set(
           SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key,
           targetNumPostShufflePartitions.toString)
+    if (adaptiveExecutionDisabledForJoin) {
+      sparkConf.set(SQLConf.ADAPTIVE_EXECUTION_DISABLED_FOR_JOINING.key, "true")
+    }
     minNumPostShufflePartitions match {
       case Some(numPartitions) =>
         sparkConf.set(SQLConf.SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS.key, numPartitions.toString)
@@ -458,6 +465,9 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
 
         // Then, let's look at the number of post-shuffle partitions estimated
         // by the ExchangeCoordinator.
+        // scalastyle:off
+        println(join.queryExecution.executedPlan)
+        // scalastyle:on
         val exchanges = join.queryExecution.executedPlan.collect {
           case e: ShuffleExchange => e
         }
@@ -473,11 +483,90 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
 
           case None =>
             assert(exchanges.forall(_.coordinator.isDefined))
-            assert(exchanges.map(_.outputPartitioning.numPartitions).toSet === Set(5, 3))
+            assert(exchanges.map(_.outputPartitioning.numPartitions).toSeq.toSet === Set(5, 3))
         }
       }
 
-      withSparkSession(test, 6144, minNumPostShufflePartitions)
+      withSparkSession(
+        test,
+        6144,
+        minNumPostShufflePartitions,
+        adaptiveExecutionDisabledForJoin = false
+      )
     }
+    /*
+    test(s"adaptive execution disabled for joining: complex query 3$testNameNote") {
+      val test = { spark: SparkSession =>
+        val df1 =
+          spark
+            .range(0, 1000, 1, numInputPartitions)
+            .selectExpr("id % 500 as key1", "id as value1")
+            .groupBy("key1")
+            .count()
+            .toDF("key1", "cnt1")
+        val df2 =
+          spark
+            .range(0, 1000, 1, numInputPartitions)
+            .selectExpr("id % 500 as key2", "id as value2")
+
+        val join =
+          df1
+            .join(df2, col("key1") === col("key2"))
+            .select(col("key1"), col("cnt1"), col("value2"))
+
+        // Check the answer first.
+        val expectedAnswer =
+          spark
+            .range(0, 1000)
+            .selectExpr("id % 500 as key", "2 as cnt", "id as value")
+        checkAnswer(
+          join,
+          expectedAnswer.collect())
+
+        // Verify that adaptive execution is disabled for SortMergeJoin but not for others
+        val executedPlan = join.queryExecution.executedPlan
+        val verified = new mutable.HashSet[SparkPlan]
+        val waitingToVerify = new mutable.Stack[(SparkPlan, Boolean)]
+        def verify(plan: SparkPlan, childOfJoin: Boolean): Unit = {
+          if (!verified(plan)) {
+            verified += plan
+            plan match {
+              case SortMergeJoinExec(_, _, _, _, left, right) =>
+                waitingToVerify.push((left, true))
+                waitingToVerify.push((right, true))
+              case ShuffleExchange(newPartitioning, child, coordinator) =>
+                if (childOfJoin) {
+                  assert(coordinator.isEmpty)
+                  waitingToVerify.push((child, false))
+                } else {
+                  minNumPostShufflePartitions match {
+                    case Some(_) =>
+                      assert(coordinator.isDefined)
+                      assert(newPartitioning.numPartitions === 5)
+                    case None =>
+                      assert(coordinator.isDefined)
+                  }
+                  waitingToVerify.push((child, false))
+                }
+              case _ =>
+                plan.children.foreach { child =>
+                  waitingToVerify.push((child, childOfJoin))
+                }
+            }
+          }
+        }
+        waitingToVerify.push((executedPlan, false))
+        while(waitingToVerify.nonEmpty) {
+          val (plan, childOfJoin) = waitingToVerify.pop()
+          verify(plan, childOfJoin)
+        }
+      }
+
+      withSparkSession(
+        test,
+        6144,
+        minNumPostShufflePartitions,
+        adaptiveExecutionDisabledForJoin = true)
+    } */
   }
 }

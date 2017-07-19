@@ -47,6 +47,13 @@ class InMemoryFileIndex(
   @volatile private var cachedLeafDirToChildrenFiles: Map[Path, Array[FileStatus]] = _
   @volatile private var cachedPartitionSpec: PartitionSpec = _
 
+  // scalastyle:off
+  import org.apache.spark.util.Utils.exceptionString
+  println("\n\n\n*** MEH")
+  println(exceptionString(new RuntimeException("initializing InMemoryFileIndex")))
+  println("\n\n\n")
+  // scalastyle:on
+
   refresh0()
 
   override def partitionSpec(): PartitionSpec = {
