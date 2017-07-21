@@ -1146,13 +1146,13 @@ class BlockManagerSuite extends SparkFunSuite with Matchers with BeforeAndAfterE
    */
   private def verifyUnroll(
       expected: Iterator[Any],
-      result: Either[Array[Any], Iterator[Any]],
+      result: Either[Array[Any], (Iterator[Any], Boolean)],
       shouldBeArray: Boolean): Unit = {
     val actual: Iterator[Any] = result match {
       case Left(arr: Array[Any]) =>
         assert(shouldBeArray, "expected iterator from unroll!")
         arr.iterator
-      case Right(it: Iterator[Any]) =>
+      case Right((it: Iterator[Any], shouldCache: Boolean)) =>
         assert(!shouldBeArray, "expected array from unroll!")
         it
       case _ =>

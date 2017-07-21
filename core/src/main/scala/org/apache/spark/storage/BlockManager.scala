@@ -509,7 +509,14 @@ private[spark] class BlockManager(
           logDebug(s"Getting block $blockId from disk")
           val bytes: ByteBuffer = if (diskStore.contains(blockId)) {
             // DiskStore.getBytes() always returns Some, so this .get() is guaranteed to be safe
-            diskStore.getBytes(blockId).get
+            try {
+              diskStore.getBytes(blockId).get
+            } catch {
+              case t: Throwable =>
+                logError(s"diskStore.getBytes($blockId).get failed")
+                throw t
+            }
+
           } else {
             // Remove the missing block so that its unavailability is reported to the driver
             removeBlock(blockId)
