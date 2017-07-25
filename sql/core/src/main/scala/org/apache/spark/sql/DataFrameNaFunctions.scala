@@ -18,6 +18,7 @@
 package org.apache.spark.sql
 
 import java.{lang => jl}
+import java.util.Locale
 
 import scala.collection.JavaConverters._
 
@@ -89,7 +90,7 @@ final class DataFrameNaFunctions private[sql](df: DataFrame) {
    * @since 1.3.1
    */
   def drop(how: String, cols: Seq[String]): DataFrame = {
-    how.toLowerCase match {
+    how.toLowerCase(Locale.ROOT) match {
       case "any" => drop(cols.size, cols)
       case "all" => drop(1, cols)
       case _ => throw new IllegalArgumentException(s"how ($how) must be 'any' or 'all'")
@@ -128,7 +129,7 @@ final class DataFrameNaFunctions private[sql](df: DataFrame) {
   /**
    * Returns a new `DataFrame` that replaces null or NaN values in numeric columns with `value`.
    *
-   * @since 2.1.1
+   * @since 2.2.0
    */
   def fill(value: Long): DataFrame = fill(value, df.columns)
 
@@ -149,7 +150,7 @@ final class DataFrameNaFunctions private[sql](df: DataFrame) {
    * Returns a new `DataFrame` that replaces null or NaN values in specified numeric columns.
    * If a specified column is not a numeric column, it is ignored.
    *
-   * @since 2.1.1
+   * @since 2.2.0
    */
   def fill(value: Long, cols: Array[String]): DataFrame = fill(value, cols.toSeq)
 
@@ -165,7 +166,7 @@ final class DataFrameNaFunctions private[sql](df: DataFrame) {
    * (Scala-specific) Returns a new `DataFrame` that replaces null or NaN values in specified
    * numeric columns. If a specified column is not a numeric column, it is ignored.
    *
-   * @since 2.1.1
+   * @since 2.2.0
    */
   def fill(value: Long, cols: Seq[String]): DataFrame = fillValue(value, cols)
 

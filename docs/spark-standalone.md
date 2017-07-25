@@ -242,7 +242,7 @@ SPARK_WORKER_OPTS supports the following system properties:
 </tr>
 <tr>
   <td><code>spark.worker.cleanup.appDataTtl</code></td>
-  <td>7 * 24 * 3600 (7 days)</td>
+  <td>604800 (7 days, 7 * 24 * 3600)</td>
   <td>
     The number of seconds to retain application work directories on each worker.  This is a Time To Live
     and should depend on the amount of available disk space you have.  Application logs and jars are
@@ -264,7 +264,7 @@ SPARK_WORKER_OPTS supports the following system properties:
 # Connecting an Application to the Cluster
 
 To run an application on the Spark cluster, simply pass the `spark://IP:PORT` URL of the master as to the [`SparkContext`
-constructor](programming-guide.html#initializing-spark).
+constructor](rdd-programming-guide.html#initializing-spark).
 
 To run an interactive Spark shell against the cluster, run the following command:
 

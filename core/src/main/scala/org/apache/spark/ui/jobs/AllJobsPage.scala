@@ -291,8 +291,8 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
       val startTime = listener.startTime
       val endTime = listener.endTime
       val activeJobs = listener.activeJobs.values.toSeq
-      val completedJobs = listener.completedJobs.reverse.toSeq
-      val failedJobs = listener.failedJobs.reverse.toSeq
+      val completedJobs = listener.completedJobs.reverse
+      val failedJobs = listener.failedJobs.reverse
 
       val activeJobsTable =
         jobsTable(request, "active", "activeJob", activeJobs, killEnabled = parent.killEnabled)
@@ -632,8 +632,8 @@ private[ui] class JobPagedTable(
       </td>
       <td class="progress-cell">
         {UIUtils.makeProgressBar(started = job.numActiveTasks, completed = job.numCompletedTasks,
-        failed = job.numFailedTasks, skipped = job.numSkippedTasks, killed = job.numKilledTasks,
-        total = job.numTasks - job.numSkippedTasks)}
+        failed = job.numFailedTasks, skipped = job.numSkippedTasks,
+        reasonToNumKilled = job.reasonToNumKilled, total = job.numTasks - job.numSkippedTasks)}
       </td>
     </tr>
   }

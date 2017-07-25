@@ -48,10 +48,8 @@ case class BroadcastExchangeExec(
 
   override def outputPartitioning: Partitioning = BroadcastPartitioning(mode)
 
-  override def sameResult(plan: SparkPlan): Boolean = plan match {
-    case p: BroadcastExchangeExec =>
-      mode.compatibleWith(p.mode) && child.sameResult(p.child)
-    case _ => false
+  override lazy val canonicalized: SparkPlan = {
+    BroadcastExchangeExec(mode.canonicalized, child.canonicalized)
   }
 
   @transient
@@ -122,8 +120,7 @@ case class BroadcastExchangeExec(
   }
 
   override protected[sql] def doExecuteBroadcast[T](): broadcast.Broadcast[T] = {
-    ThreadUtils.awaitResultInForkJoinSafely(relationFuture, timeout)
-      .asInstanceOf[broadcast.Broadcast[T]]
+    ThreadUtils.awaitResult(relationFuture, timeout).asInstanceOf[broadcast.Broadcast[T]]
   }
 }
 

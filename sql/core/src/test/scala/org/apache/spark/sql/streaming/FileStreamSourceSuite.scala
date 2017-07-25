@@ -33,6 +33,7 @@ import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.FileStreamSource.{FileEntry, SeenFilesMap}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.ExistsThrowsExceptionFileSystem._
+import org.apache.spark.sql.streaming.util.StreamManualClock
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
@@ -43,8 +44,8 @@ abstract class FileStreamSourceTest
   import testImplicits._
 
   /**
-   * A subclass [[AddData]] for adding data to files. This is meant to use the
-   * [[FileStreamSource]] actually being used in the execution.
+   * A subclass `AddData` for adding data to files. This is meant to use the
+   * `FileStreamSource` actually being used in the execution.
    */
   abstract class AddFileData extends AddData {
     override def addData(query: Option[StreamExecution]): (Source, Offset) = {
@@ -52,10 +53,7 @@ abstract class FileStreamSourceTest
         query.nonEmpty,
         "Cannot add data when there is no query for finding the active file stream source")
 
-      val sources = query.get.logicalPlan.collect {
-        case StreamingExecutionRelation(source, _) if source.isInstanceOf[FileStreamSource] =>
-          source.asInstanceOf[FileStreamSource]
-      }
+      val sources = getSourcesFromStreamingQuery(query.get)
       if (sources.isEmpty) {
         throw new Exception(
           "Could not find file source in the StreamExecution logical plan to add data to")
@@ -133,6 +131,14 @@ abstract class FileStreamSourceTest
         dataSource.createSource(s"$checkpointLocation/sources/0").asInstanceOf[FileStreamSource]
       }.head
   }
+
+  protected def getSourcesFromStreamingQuery(query: StreamExecution): Seq[FileStreamSource] = {
+    query.logicalPlan.collect {
+      case StreamingExecutionRelation(source, _) if source.isInstanceOf[FileStreamSource] =>
+        source.asInstanceOf[FileStreamSource]
+    }
+  }
+
 
   protected def withTempDirs(body: (File, File) => Unit) {
     val src = Utils.createTempDir(namePrefix = "streaming.src")
@@ -388,9 +394,7 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
         CheckAnswer("a", "b", "c", "d"),
 
         AssertOnQuery("seen files should contain only one entry") { streamExecution =>
-          val source = streamExecution.logicalPlan.collect { case e: StreamingExecutionRelation =>
-            e.source.asInstanceOf[FileStreamSource]
-          }.head
+          val source = getSourcesFromStreamingQuery(streamExecution).head
           assert(source.seenFiles.size == 1)
           true
         }
@@ -662,6 +666,101 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
     }
   }
 
+  test("read data from outputs of another streaming query") {
+    withSQLConf(SQLConf.FILE_SINK_LOG_COMPACT_INTERVAL.key -> "3") {
+      withTempDirs { case (outputDir, checkpointDir) =>
+        // q1 is a streaming query that reads from memory and writes to text files
+        val q1Source = MemoryStream[String]
+        val q1 =
+          q1Source
+            .toDF()
+            .writeStream
+            .option("checkpointLocation", checkpointDir.getCanonicalPath)
+            .format("text")
+            .start(outputDir.getCanonicalPath)
+
+        // q2 is a streaming query that reads q1's text outputs
+        val q2 =
+          createFileStream("text", outputDir.getCanonicalPath).filter($"value" contains "keep")
+
+        def q1AddData(data: String*): StreamAction =
+          Execute { _ =>
+            q1Source.addData(data)
+            q1.processAllAvailable()
+          }
+        def q2ProcessAllAvailable(): StreamAction = Execute { q2 => q2.processAllAvailable() }
+
+        testStream(q2)(
+          // batch 0
+          q1AddData("drop1", "keep2"),
+          q2ProcessAllAvailable(),
+          CheckAnswer("keep2"),
+
+          // batch 1
+          Assert {
+            // create a text file that won't be on q1's sink log
+            // thus even if its content contains "keep", it should NOT appear in q2's answer
+            val shouldNotKeep = new File(outputDir, "should_not_keep.txt")
+            stringToFile(shouldNotKeep, "should_not_keep!!!")
+            shouldNotKeep.exists()
+          },
+          q1AddData("keep3"),
+          q2ProcessAllAvailable(),
+          CheckAnswer("keep2", "keep3"),
+
+          // batch 2: check that things work well when the sink log gets compacted
+          q1AddData("keep4"),
+          Assert {
+            // compact interval is 3, so file "2.compact" should exist
+            new File(outputDir, s"${FileStreamSink.metadataDir}/2.compact").exists()
+          },
+          q2ProcessAllAvailable(),
+          CheckAnswer("keep2", "keep3", "keep4"),
+
+          Execute { _ => q1.stop() }
+        )
+      }
+    }
+  }
+
+  test("start before another streaming query, and read its output") {
+    withTempDirs { case (outputDir, checkpointDir) =>
+      // q1 is a streaming query that reads from memory and writes to text files
+      val q1Source = MemoryStream[String]
+      // define q1, but don't start it for now
+      val q1Write =
+        q1Source
+          .toDF()
+          .writeStream
+          .option("checkpointLocation", checkpointDir.getCanonicalPath)
+          .format("text")
+      var q1: StreamingQuery = null
+
+      val q2 = createFileStream("text", outputDir.getCanonicalPath).filter($"value" contains "keep")
+
+      testStream(q2)(
+        AssertOnQuery { q2 =>
+          val fileSource = getSourcesFromStreamingQuery(q2).head
+          // q1 has not started yet, verify that q2 doesn't know whether q1 has metadata
+          fileSource.sourceHasMetadata === None
+        },
+        Execute { _ =>
+          q1 = q1Write.start(outputDir.getCanonicalPath)
+          q1Source.addData("drop1", "keep2")
+          q1.processAllAvailable()
+        },
+        AssertOnQuery { q2 =>
+          q2.processAllAvailable()
+          val fileSource = getSourcesFromStreamingQuery(q2).head
+          // q1 has started, verify that q2 knows q1 has metadata by now
+          fileSource.sourceHasMetadata === Some(true)
+        },
+        CheckAnswer("keep2"),
+        Execute { _ => q1.stop() }
+      )
+    }
+  }
+
   test("when schema inference is turned on, should read partition data") {
     def createFile(content: String, src: File, tmp: File): Unit = {
       val tempFile = Utils.tempFileWith(new File(tmp, "text"))
@@ -755,10 +854,7 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
         .streamingQuery
       q.processAllAvailable()
       val memorySink = q.sink.asInstanceOf[MemorySink]
-      val fileSource = q.logicalPlan.collect {
-        case StreamingExecutionRelation(source, _) if source.isInstanceOf[FileStreamSource] =>
-          source.asInstanceOf[FileStreamSource]
-      }.head
+      val fileSource = getSourcesFromStreamingQuery(q).head
 
       /** Check the data read in the last batch */
       def checkLastBatchData(data: Int*): Unit = {
@@ -814,7 +910,7 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
     }
   }
 
-  test("max files per trigger - incorrect values") {
+  testQuietly("max files per trigger - incorrect values") {
     val testTable = "maxFilesPerTrigger_test"
     withTable(testTable) {
       withTempDir { case src =>
@@ -1141,7 +1237,7 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
   }
 
   test("SeenFilesMap") {
-    val map = new SeenFilesMap(maxAgeMs = 10)
+    val map = new SeenFilesMap(maxAgeMs = 10, fileNameOnly = false)
 
     map.add("a", 5)
     assert(map.size == 1)
@@ -1174,8 +1270,26 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
     assert(map.isNewFile("e", 20))
   }
 
+  test("SeenFilesMap with fileNameOnly = true") {
+    val map = new SeenFilesMap(maxAgeMs = 10, fileNameOnly = true)
+
+    map.add("file:///a/b/c/d", 5)
+    map.add("file:///a/b/c/e", 5)
+    assert(map.size === 2)
+
+    assert(!map.isNewFile("d", 5))
+    assert(!map.isNewFile("file:///d", 5))
+    assert(!map.isNewFile("file:///x/d", 5))
+    assert(!map.isNewFile("file:///x/y/d", 5))
+
+    map.add("s3:///bucket/d", 5)
+    map.add("s3n:///bucket/d", 5)
+    map.add("s3a:///bucket/d", 5)
+    assert(map.size === 2)
+  }
+
   test("SeenFilesMap should only consider a file old if it is earlier than last purge time") {
-    val map = new SeenFilesMap(maxAgeMs = 10)
+    val map = new SeenFilesMap(maxAgeMs = 10, fileNameOnly = false)
 
     map.add("a", 20)
     assert(map.size == 1)
@@ -1190,7 +1304,7 @@ class FileStreamSourceSuite extends FileStreamSourceTest {
     assert(map.isNewFile("b", 10))
   }
 
-  testWithUninterruptibleThread("do not recheck that files exist during getBatch") {
+  test("do not recheck that files exist during getBatch") {
     withTempDir { temp =>
       spark.conf.set(
         s"fs.$scheme.impl",
@@ -1213,7 +1327,7 @@ class FileStreamSourceStressTestSuite extends FileStreamSourceTest {
 
   import testImplicits._
 
-  test("file source stress test") {
+  testQuietly("file source stress test") {
     val src = Utils.createTempDir(namePrefix = "streaming.src")
     val tmp = Utils.createTempDir(namePrefix = "streaming.tmp")
 

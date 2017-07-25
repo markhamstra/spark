@@ -113,6 +113,8 @@ can then be used as features for prediction, document similarity calculations, e
 Please refer to the [MLlib user guide on Word2Vec](mllib-feature-extraction.html#word2vec) for more
 details.
 
+**Examples**
+
 In the following code segment, we start with a set of documents, each of which is represented as a sequence of words. For each document, we transform it into a feature vector. This feature vector could then be passed to a learning algorithm.
 
 <div class="codetabs">
@@ -221,6 +223,8 @@ for more details on the API.
  Alternatively, users can set parameter "gaps" to false indicating the regex "pattern" denotes
  "tokens" rather than splitting gaps, and find all matching occurrences as the tokenization result.
 
+**Examples**
+
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
 
@@ -322,6 +326,8 @@ An [n-gram](https://en.wikipedia.org/wiki/N-gram) is a sequence of $n$ tokens (t
 
 `NGram` takes as input a sequence of strings (e.g. the output of a [Tokenizer](ml-features.html#tokenizer)).  The parameter `n` is used to determine the number of terms in each $n$-gram. The output will consist of a sequence of $n$-grams where each $n$-gram is represented by a space-delimited string of $n$ consecutive words.  If the input sequence contains fewer than `n` strings, no output is produced.
 
+**Examples**
+
 <div class="codetabs">
 
 <div data-lang="scala" markdown="1">
@@ -359,6 +365,8 @@ for binarization. Feature values greater than the threshold are binarized to 1.0
 to or less than the threshold are binarized to 0.0. Both Vector and Double types are supported
 for `inputCol`.
 
+**Examples**
+
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
 
@@ -389,6 +397,8 @@ for more details on the API.
 
 [PCA](http://en.wikipedia.org/wiki/Principal_component_analysis) is a statistical procedure that uses an orthogonal transformation to convert a set of observations of possibly correlated variables into a set of values of linearly uncorrelated variables called principal components. A [PCA](api/scala/index.html#org.apache.spark.ml.feature.PCA) class trains a model to project vectors to a low-dimensional space using PCA. The example below shows how to project 5-dimensional feature vectors into 3-dimensional principal components.
 
+**Examples**
+
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
 
@@ -418,6 +428,8 @@ for more details on the API.
 ## PolynomialExpansion
 
 [Polynomial expansion](http://en.wikipedia.org/wiki/Polynomial_expansion) is the process of expanding your features into a polynomial space, which is formulated by an n-degree combination of original dimensions. A [PolynomialExpansion](api/scala/index.html#org.apache.spark.ml.feature.PolynomialExpansion) class provides this functionality.  The example below shows how to expand your features into a 3-degree polynomial space.
+
+**Examples**
 
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
@@ -459,6 +471,8 @@ for the transform is unitary. No shift is applied to the transformed
 sequence (e.g. the $0$th element of the transformed sequence is the
 $0$th DCT coefficient and _not_ the $N/2$th).
 
+**Examples**
+
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
 
@@ -489,6 +503,7 @@ for more details on the API.
 
 `StringIndexer` encodes a string column of labels to a column of label indices.
 The indices are in `[0, numLabels)`, ordered by label frequencies, so the most frequent label gets index `0`.
+The unseen labels will be put at index numLabels if user chooses to keep them.
 If the input column is numeric, we cast it to string and index the string
 values. When downstream pipeline components such as `Estimator` or
 `Transformer` make use of this string-indexed label, you must set the input
@@ -528,12 +543,13 @@ column, we should get the following:
 "a" gets index `0` because it is the most frequent, followed by "c" with index `1` and "b" with
 index `2`.
 
-Additionally, there are two strategies regarding how `StringIndexer` will handle
+Additionally, there are three strategies regarding how `StringIndexer` will handle
 unseen labels when you have fit a `StringIndexer` on one dataset and then use it
 to transform another:
 
 - throw an exception (which is the default)
 - skip the row containing the unseen label entirely
+- put unseen labels in a special additional bucket, at index numLabels
 
 **Examples**
 
@@ -547,6 +563,7 @@ Let's go back to our previous example but this time reuse our previously defined
  1  | b
  2  | c
  3  | d
+ 4  | e
 ~~~~
 
 If you've not set how `StringIndexer` handles unseen labels or set it to
@@ -562,7 +579,22 @@ will be generated:
  2  | c        | 1.0
 ~~~~
 
-Notice that the row containing "d" does not appear.
+Notice that the rows containing "d" or "e" do not appear.
+
+If you call `setHandleInvalid("keep")`, the following dataset
+will be generated:
+
+~~~~
+ id | category | categoryIndex
+----|----------|---------------
+ 0  | a        | 0.0
+ 1  | b        | 2.0
+ 2  | c        | 1.0
+ 3  | d        | 3.0
+ 4  | e        | 3.0
+~~~~
+
+Notice that the rows containing "d" or "e" are mapped to index "3.0"
 
 <div class="codetabs">
 
@@ -664,6 +696,8 @@ for more details on the API.
 
 [One-hot encoding](http://en.wikipedia.org/wiki/One-hot) maps a column of label indices to a column of binary vectors, with at most a single one-value. This encoding allows algorithms which expect continuous features, such as Logistic Regression, to use categorical features.
 
+**Examples**
+
 <div class="codetabs">
 <div data-lang="scala" markdown="1">
 
@@ -702,6 +736,8 @@ It can both automatically decide which features are categorical and convert orig
 
 Indexing categorical features allows algorithms such as Decision Trees and Tree Ensembles to treat categorical features appropriately, improving performance.
 
+**Examples**
+
 In the example below, we read in a dataset of labeled points and then use `VectorIndexer` to decide which features should be treated as categorical.  We transform the categorical feature values to their indices.  This transformed data could then be passed to algorithms such as `DecisionTreeRegressor` that handle categorical features.
 
 <div class="codetabs">
@@ -734,7 +770,7 @@ for more details on the API.
 
 `Interaction` is a `Transformer` which takes vector or double-valued columns, and generates a single vector column that contains the product of all combinations of one value from each input column.
 
-For example, if you have 2 vector type columns each of which has 3 dimensions as input columns, then then you'll get a 9-dimensional vector as the output column.
+For example, if you have 2 vector type columns each of which has 3 dimensions as input columns, then you'll get a 9-dimensional vector as the output column.
 
 **Examples**
 
@@ -787,6 +823,8 @@ for more details on the API.
 
 `Normalizer` is a `Transformer` which transforms a dataset of `Vector` rows, normalizing each `Vector` to have unit norm.  It takes parameter `p`, which specifies the [p-norm](http://en.wikipedia.org/wiki/Norm_%28mathematics%29#p-norm) used for normalization.  ($p = 2$ by default.)  This normalization can help standardize your input data and improve the behavior of learning algorithms.
 
+**Examples**
+
 The following example demonstrates how to load a dataset in libsvm format and then normalize each row to have unit $L^1$ norm and unit $L^\infty$ norm.
 
 <div class="codetabs">
@@ -826,6 +864,8 @@ for more details on the API.
 `StandardScaler` is an `Estimator` which can be `fit` on a dataset to produce a `StandardScalerModel`; this amounts to computing summary statistics.  The model can then transform a `Vector` column in a dataset to have unit standard deviation and/or zero mean features.
 
 Note that if the standard deviation of a feature is zero, it will return default `0.0` value in the `Vector` for that feature.
+
+**Examples**
 
 The following example demonstrates how to load a dataset in libsvm format and then normalize each feature to have unit standard deviation.
 
@@ -872,6 +912,8 @@ For the case `$E_{max} == E_{min}$`, `$Rescaled(e_i) = 0.5 * (max + min)$`
 
 Note that since zero values will probably be transformed to non-zero values, output of the transformer will be `DenseVector` even for sparse input.
 
+**Examples**
+
 The following example demonstrates how to load a dataset in libsvm format and then rescale each feature to [0, 1].
 
 <div class="codetabs">
@@ -912,6 +954,8 @@ data, and thus does not destroy any sparsity.
 
 `MaxAbsScaler` computes summary statistics on a data set and produces a `MaxAbsScalerModel`. The 
 model can then transform each feature individually to range [-1, 1].
+
+**Examples**
 
 The following example demonstrates how to load a dataset in libsvm format and then rescale each feature to [-1, 1].
 
@@ -955,6 +999,8 @@ Note that if you have no idea of the upper and lower bounds of the targeted colu
 Note also that the splits that you provided have to be in strictly increasing order, i.e. `s0 < s1 < s2 < ... < sn`.
 
 More details can be found in the API docs for [Bucketizer](api/scala/index.html#org.apache.spark.ml.feature.Bucketizer).
+
+**Examples**
 
 The following example demonstrates how to bucketize a column of `Double`s into another index-wised column.
 
@@ -1003,6 +1049,8 @@ v_N
   v_N w_N
   \end{pmatrix}
 \]`
+
+**Examples**
 
 This example below demonstrates how to transform vectors using a transforming vector value.
 
@@ -1236,6 +1284,72 @@ for more details on the API.
 
 </div>
 
+
+## Imputer
+
+The `Imputer` transformer completes missing values in a dataset, either using the mean or the 
+median of the columns in which the missing values are located. The input columns should be of
+`DoubleType` or `FloatType`. Currently `Imputer` does not support categorical features and possibly
+creates incorrect values for columns containing categorical features.
+
+**Note** all `null` values in the input columns are treated as missing, and so are also imputed.
+
+**Examples**
+
+Suppose that we have a DataFrame with the columns `a` and `b`:
+
+~~~
+      a     |      b      
+------------|-----------
+     1.0    | Double.NaN
+     2.0    | Double.NaN
+ Double.NaN |     3.0   
+     4.0    |     4.0   
+     5.0    |     5.0   
+~~~
+
+In this example, Imputer will replace all occurrences of `Double.NaN` (the default for the missing value)
+with the mean (the default imputation strategy) computed from the other values in the corresponding columns.
+In this example, the surrogate values for columns `a` and `b` are 3.0 and 4.0 respectively. After
+transformation, the missing values in the output columns will be replaced by the surrogate value for
+the relevant column.
+
+~~~
+      a     |      b     | out_a | out_b   
+------------|------------|-------|-------
+     1.0    | Double.NaN |  1.0  |  4.0 
+     2.0    | Double.NaN |  2.0  |  4.0 
+ Double.NaN |     3.0    |  3.0  |  3.0 
+     4.0    |     4.0    |  4.0  |  4.0
+     5.0    |     5.0    |  5.0  |  5.0 
+~~~
+
+<div class="codetabs">
+<div data-lang="scala" markdown="1">
+
+Refer to the [Imputer Scala docs](api/scala/index.html#org.apache.spark.ml.feature.Imputer)
+for more details on the API.
+
+{% include_example scala/org/apache/spark/examples/ml/ImputerExample.scala %}
+</div>
+
+<div data-lang="java" markdown="1">
+
+Refer to the [Imputer Java docs](api/java/org/apache/spark/ml/feature/Imputer.html)
+for more details on the API.
+
+{% include_example java/org/apache/spark/examples/ml/JavaImputerExample.java %}
+</div>
+
+<div data-lang="python" markdown="1">
+
+Refer to the [Imputer Python docs](api/python/pyspark.ml.html#pyspark.ml.feature.Imputer)
+for more details on the API.
+
+{% include_example python/ml/imputer_example.py %}
+</div>
+</div>
+
 # Feature Selectors
 
 ## VectorSlicer
@@ -1393,12 +1507,12 @@ for more details on the API.
 `ChiSqSelector` stands for Chi-Squared feature selection. It operates on labeled data with
 categorical features. ChiSqSelector uses the
 [Chi-Squared test of independence](https://en.wikipedia.org/wiki/Chi-squared_test) to decide which
-features to choose. It supports three selection methods: `numTopFeatures`, `percentile`, `fpr`:
-
+features to choose. It supports five selection methods: `numTopFeatures`, `percentile`, `fpr`, `fdr`, `fwe`:
 * `numTopFeatures` chooses a fixed number of top features according to a chi-squared test. This is akin to yielding the features with the most predictive power.
 * `percentile` is similar to `numTopFeatures` but chooses a fraction of all features instead of a fixed number.
-* `fpr` chooses all features whose p-value is below a threshold, thus controlling the false positive rate of selection.
-
+* `fpr` chooses all features whose p-values are below a threshold, thus controlling the false positive rate of selection.
+* `fdr` uses the [Benjamini-Hochberg procedure](https://en.wikipedia.org/wiki/False_discovery_rate#Benjamini.E2.80.93Hochberg_procedure) to choose all features whose false discovery rate is below a threshold.
+* `fwe` chooses all features whose p-values are below a threshold. The threshold is scaled by 1/numFeatures, thus controlling the family-wise error rate of selection.
 By default, the selection method is `numTopFeatures`, with the default number of top features set to 50.
 The user can choose a selection method using `setSelectorType`.
 
@@ -1528,6 +1642,15 @@ for more details on the API.
 
 {% include_example java/org/apache/spark/examples/ml/JavaBucketedRandomProjectionLSHExample.java %}
 </div>
+
+<div data-lang="python" markdown="1">
+
+Refer to the [BucketedRandomProjectionLSH Python docs](api/python/pyspark.ml.html#pyspark.ml.feature.BucketedRandomProjectionLSH)
+for more details on the API.
+
+{% include_example python/ml/bucketed_random_projection_lsh_example.py %}
+</div>
+
 </div>
 
 ### MinHash for Jaccard Distance
@@ -1559,5 +1682,13 @@ Refer to the [MinHashLSH Java docs](api/java/org/apache/spark/ml/feature/MinHash
 for more details on the API.
 
 {% include_example java/org/apache/spark/examples/ml/JavaMinHashLSHExample.java %}
+</div>
+
+<div data-lang="python" markdown="1">
+
+Refer to the [MinHashLSH Python docs](api/python/pyspark.ml.html#pyspark.ml.feature.MinHashLSH)
+for more details on the API.
+
+{% include_example python/ml/min_hash_lsh_example.py %}
 </div>
 </div>

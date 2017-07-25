@@ -25,13 +25,14 @@ import org.scalatest.concurrent.Eventually
 import org.apache.spark.{DebugFilesystem, SparkConf}
 import org.apache.spark.sql.{SparkSession, SQLContext}
 
-
 /**
  * Helper trait for SQL test suites where all tests share a single [[TestSparkSession]].
  */
 trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventually {
 
-  protected val sparkConf = new SparkConf()
+  protected def sparkConf = {
+    new SparkConf().set("spark.hadoop.fs.file.impl", classOf[DebugFilesystem].getName)
+  }
 
   /**
    * The [[TestSparkSession]] to use for all tests in this suite.
@@ -52,8 +53,7 @@ trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventua
   protected implicit def sqlContext: SQLContext = _spark.sqlContext
 
   protected def createSparkSession: TestSparkSession = {
-    new TestSparkSession(
-      sparkConf.set("spark.hadoop.fs.file.impl", classOf[DebugFilesystem].getName))
+    new TestSparkSession(sparkConf)
   }
 
   /**
@@ -72,13 +72,11 @@ trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventua
    * Stop the underlying [[org.apache.spark.SparkContext]], if any.
    */
   protected override def afterAll(): Unit = {
-    try {
-      if (_spark != null) {
-        _spark.stop()
-        _spark = null
-      }
-    } finally {
-      super.afterAll()
+    super.afterAll()
+    if (_spark != null) {
+      _spark.sessionState.catalog.reset()
+      _spark.stop()
+      _spark = null
     }
   }
 

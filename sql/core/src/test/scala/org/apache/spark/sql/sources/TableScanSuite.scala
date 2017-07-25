@@ -206,6 +206,7 @@ class TableScanSuite extends DataSourceTest with SharedSQLContext {
     def hiveMetadata(dt: String): Metadata = {
       new MetadataBuilder().putString(HIVE_TYPE_STRING, dt).build()
     }
+
     val expectedSchema = StructType(
       StructField("string$%Field", StringType, true) ::
       StructField("binaryField", BinaryType, true) ::

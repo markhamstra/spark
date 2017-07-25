@@ -27,7 +27,8 @@ import scala.xml.Node
 
 import com.google.common.io.ByteStreams
 import com.google.common.util.concurrent.{MoreExecutors, ThreadFactoryBuilder}
-import org.apache.hadoop.fs.{FileStatus, FileSystem, Path}
+import org.apache.hadoop.fs.{FileStatus, Path}
+import org.apache.hadoop.fs.permission.FsAction
 import org.apache.hadoop.hdfs.DistributedFileSystem
 import org.apache.hadoop.hdfs.protocol.HdfsConstants
 import org.apache.hadoop.security.AccessControlException
@@ -94,7 +95,6 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
     Math.ceil(Runtime.getRuntime.availableProcessors() / 4f).toInt)
 
   private val logDir = conf.getOption("spark.history.fs.logDirectory")
-    .map { d => Utils.resolveURI(d).toString }
     .getOrElse(DEFAULT_LOG_DIR)
 
   private val HISTORY_UI_ACLS_ENABLE = conf.getBoolean("spark.history.ui.acls.enable", false)
@@ -105,7 +105,7 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
     "; groups with admin permissions" + HISTORY_UI_ADMIN_ACLS_GROUPS.toString)
 
   private val hadoopConf = SparkHadoopUtil.get.newConfiguration(conf)
-  private val fs = Utils.getHadoopFileSystem(logDir, hadoopConf)
+  private val fs = new Path(logDir).getFileSystem(hadoopConf)
 
   // Used by check event thread and clean log thread.
   // Scheduled thread pool size must be one, otherwise it will have concurrent issues about fs
@@ -319,21 +319,14 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
       // scan for modified applications, replay and merge them
       val logInfos: Seq[FileStatus] = statusList
         .filter { entry =>
-          try {
-            val prevFileSize = fileToAppInfo.get(entry.getPath()).map{_.fileSize}.getOrElse(0L)
-            !entry.isDirectory() &&
-              // FsHistoryProvider generates a hidden file which can't be read.  Accidentally
-              // reading a garbage file is safe, but we would log an error which can be scary to
-              // the end-user.
-              !entry.getPath().getName().startsWith(".") &&
-              prevFileSize < entry.getLen()
-          } catch {
-            case e: AccessControlException =>
-              // Do not use "logInfo" since these messages can get pretty noisy if printed on
-              // every poll.
-              logDebug(s"No permission to read $entry, ignoring.")
-              false
-          }
+          val prevFileSize = fileToAppInfo.get(entry.getPath()).map{_.fileSize}.getOrElse(0L)
+          !entry.isDirectory() &&
+            // FsHistoryProvider generates a hidden file which can't be read.  Accidentally
+            // reading a garbage file is safe, but we would log an error which can be scary to
+            // the end-user.
+            !entry.getPath().getName().startsWith(".") &&
+            prevFileSize < entry.getLen() &&
+            SparkHadoopUtil.get.checkAccessPermission(entry, FsAction.READ)
         }
         .flatMap { entry => Some(entry) }
         .sortWith { case (entry1, entry2) =>
@@ -446,7 +439,7 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
   /**
    * Replay the log files in the list and merge the list of old applications with new ones
    */
-  private def mergeApplicationListing(fileStatus: FileStatus): Unit = {
+  protected def mergeApplicationListing(fileStatus: FileStatus): Unit = {
     val newAttempts = try {
       val eventsFilter: ReplayEventsFilter = { eventString =>
         eventString.startsWith(APPL_START_EVENT_PREFIX) ||
@@ -454,8 +447,12 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
       }
 
       val logPath = fileStatus.getPath()
-
       val appCompleted = isApplicationCompleted(fileStatus)
+
+      // Use loading time as lastUpdated since some filesystems don't update modifiedTime
+      // each time file is updated. However use modifiedTime for completed jobs so lastUpdated
+      // won't change whenever HistoryServer restarts and reloads the file.
+      val lastUpdated = if (appCompleted) fileStatus.getModificationTime else clock.getTimeMillis()
 
       val appListener = replay(fileStatus, appCompleted, new ReplayListenerBus(), eventsFilter)
 
@@ -469,7 +466,7 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
           appListener.appAttemptId,
           appListener.startTime.getOrElse(-1L),
           appListener.endTime.getOrElse(-1L),
-          fileStatus.getModificationTime(),
+          lastUpdated,
           appListener.sparkUser.getOrElse(NOT_STARTED),
           appCompleted,
           fileStatus.getLen()
@@ -554,7 +551,7 @@ private[history] class FsHistoryProvider(conf: SparkConf, clock: Clock)
       val appsToRetain = new mutable.LinkedHashMap[String, FsApplicationHistoryInfo]()
 
       def shouldClean(attempt: FsApplicationAttemptInfo): Boolean = {
-        now - attempt.lastUpdated > maxAge && attempt.completed
+        now - attempt.lastUpdated > maxAge
       }
 
       // Scan all logs from the log directory.

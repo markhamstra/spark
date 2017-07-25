@@ -17,39 +17,29 @@
 
 package org.apache.spark.sql.internal
 
-import org.apache.spark.internal.config.ConfigBuilder
 import org.apache.spark.util.Utils
 
 
 /**
  * Static SQL configuration is a cross-session, immutable Spark configuration. External users can
  * see the static sql configs via `SparkSession.conf`, but can NOT set/unset them.
- *//**
- * Static SQL configuration is a cross-session, immutable Spark configuration. External users can
- * see the static sql configs via `SparkSession.conf`, but can NOT set/unset them.
  */
 object StaticSQLConf {
-  val globalConfKeys = java.util.Collections.synchronizedSet(new java.util.HashSet[String]())
 
-  private def buildConf(key: String): ConfigBuilder = {
-    ConfigBuilder(key).onCreate { entry =>
-      globalConfKeys.add(entry.key)
-      SQLConf.register(entry)
-    }
-  }
+  import SQLConf.buildStaticConf
 
-  val WAREHOUSE_PATH = buildConf("spark.sql.warehouse.dir")
+  val WAREHOUSE_PATH = buildStaticConf("spark.sql.warehouse.dir")
     .doc("The default location for managed databases and tables.")
     .stringConf
     .createWithDefault(Utils.resolveURI("spark-warehouse").toString)
 
-  val CATALOG_IMPLEMENTATION = buildConf("spark.sql.catalogImplementation")
+  val CATALOG_IMPLEMENTATION = buildStaticConf("spark.sql.catalogImplementation")
     .internal()
     .stringConf
     .checkValues(Set("hive", "in-memory"))
     .createWithDefault("in-memory")
 
-  val GLOBAL_TEMP_DATABASE = buildConf("spark.sql.globalTempDatabase")
+  val GLOBAL_TEMP_DATABASE = buildStaticConf("spark.sql.globalTempDatabase")
     .internal()
     .stringConf
     .createWithDefault("global_temp")
@@ -60,18 +50,41 @@ object StaticSQLConf {
   // value of this property). We will split the JSON string of a schema to its length exceeds the
   // threshold. Note that, this conf is only read in HiveExternalCatalog which is cross-session,
   // that's why this conf has to be a static SQL conf.
-  val SCHEMA_STRING_LENGTH_THRESHOLD = buildConf("spark.sql.sources.schemaStringLengthThreshold")
-    .doc("The maximum length allowed in a single cell when " +
-      "storing additional schema information in Hive's metastore.")
-    .internal()
-    .intConf
-    .createWithDefault(4000)
+  val SCHEMA_STRING_LENGTH_THRESHOLD =
+    buildStaticConf("spark.sql.sources.schemaStringLengthThreshold")
+      .doc("The maximum length allowed in a single cell when " +
+        "storing additional schema information in Hive's metastore.")
+      .internal()
+      .intConf
+      .createWithDefault(4000)
+
+  val FILESOURCE_TABLE_RELATION_CACHE_SIZE =
+    buildStaticConf("spark.sql.filesourceTableRelationCacheSize")
+      .internal()
+      .doc("The maximum size of the cache that maps qualified table names to table relation plans.")
+      .intConf
+      .checkValue(cacheSize => cacheSize >= 0, "The maximum size of the cache must not be negative")
+      .createWithDefault(1000)
 
   // When enabling the debug, Spark SQL internal table properties are not filtered out; however,
   // some related DDL commands (e.g., ANALYZE TABLE and CREATE TABLE LIKE) might not work properly.
-  val DEBUG_MODE = buildConf("spark.sql.debug")
+  val DEBUG_MODE = buildStaticConf("spark.sql.debug")
     .internal()
     .doc("Only used for internal debugging. Not all functions are supported when it is enabled.")
     .booleanConf
     .createWithDefault(false)
+
+  val HIVE_THRIFT_SERVER_SINGLESESSION =
+    buildStaticConf("spark.sql.hive.thriftServer.singleSession")
+      .doc("When set to true, Hive Thrift server is running in a single session mode. " +
+        "All the JDBC/ODBC connections share the temporary views, function registries, " +
+        "SQL configuration and the current database.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val SPARK_SESSION_EXTENSIONS = buildStaticConf("spark.sql.extensions")
+    .doc("Name of the class used to configure Spark Session extensions. The class should " +
+      "implement Function1[SparkSessionExtension, Unit], and must have a no-args constructor.")
+    .stringConf
+    .createOptional
 }

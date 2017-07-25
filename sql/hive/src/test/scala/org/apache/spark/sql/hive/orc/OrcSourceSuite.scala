@@ -57,7 +57,7 @@ abstract class OrcSuite extends QueryTest with TestHiveSingleton with BeforeAndA
          |  stringField STRING
          |)
          |STORED AS ORC
-         |LOCATION '${orcTableAsDir.getCanonicalPath}'
+         |LOCATION '${orcTableAsDir.toURI}'
        """.stripMargin)
 
     sql(
@@ -152,24 +152,26 @@ abstract class OrcSuite extends QueryTest with TestHiveSingleton with BeforeAndA
     assert(new OrcOptions(Map("Orc.Compress" -> "NONE")).compressionCodec == "NONE")
   }
 
-  test("SPARK-18220: read Hive orc table with varchar column") {
+  test("SPARK-19459/SPARK-18220: read char/varchar column written by Hive") {
     val hiveClient = spark.sharedState.externalCatalog.asInstanceOf[HiveExternalCatalog].client
     val location = Utils.createTempDir()
     val uri = location.toURI
     try {
+      hiveClient.runSqlHive("USE default")
       hiveClient.runSqlHive(
         """
-           |CREATE EXTERNAL TABLE hive_orc(
-           |  a STRING,
-           |  b CHAR(10),
-           |  c VARCHAR(10),
-           |  d ARRAY<CHAR(3)>)
-           |STORED AS orc""".stripMargin)
+          |CREATE EXTERNAL TABLE hive_orc(
+          |  a STRING,
+          |  b CHAR(10),
+          |  c VARCHAR(10),
+          |  d ARRAY<CHAR(3)>)
+          |STORED AS orc""".stripMargin)
       // Hive throws an exception if I assign the location in the create table statement.
       hiveClient.runSqlHive(
         s"ALTER TABLE hive_orc SET LOCATION '$uri'")
       hiveClient.runSqlHive(
-        """INSERT INTO TABLE hive_orc
+        """
+          |INSERT INTO TABLE hive_orc
           |SELECT 'a', 'b', 'c', ARRAY(CAST('d' AS CHAR(3)))
           |FROM (SELECT 1) t""".stripMargin)
 
@@ -203,7 +205,7 @@ class OrcSourceSuite extends OrcSuite {
       s"""CREATE TEMPORARY VIEW normal_orc_source
          |USING org.apache.spark.sql.hive.orc
          |OPTIONS (
-         |  PATH '${new File(orcTableAsDir.getAbsolutePath).getCanonicalPath}'
+         |  PATH '${new File(orcTableAsDir.getAbsolutePath).toURI}'
          |)
        """.stripMargin)
 
@@ -211,7 +213,7 @@ class OrcSourceSuite extends OrcSuite {
       s"""CREATE TEMPORARY VIEW normal_orc_as_source
          |USING org.apache.spark.sql.hive.orc
          |OPTIONS (
-         |  PATH '${new File(orcTableAsDir.getAbsolutePath).getCanonicalPath}'
+         |  PATH '${new File(orcTableAsDir.getAbsolutePath).toURI}'
          |)
        """.stripMargin)
   }

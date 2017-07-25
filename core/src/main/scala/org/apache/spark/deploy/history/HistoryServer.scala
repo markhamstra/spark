@@ -297,6 +297,11 @@ object HistoryServer extends Logging {
    * @return the security manager for use in constructing the History Server.
    */
   private[history] def createSecurityManager(config: SparkConf): SecurityManager = {
+    if (config.getBoolean(SecurityManager.SPARK_AUTH_CONF, false)) {
+      logDebug(s"Clearing ${SecurityManager.SPARK_AUTH_CONF}")
+      config.set(SecurityManager.SPARK_AUTH_CONF, "false")
+    }
+
     if (config.getBoolean("spark.acls.enable", config.getBoolean("spark.ui.acls.enable", false))) {
       logInfo("Either spark.acls.enable or spark.ui.acls.enable is configured, clearing it and " +
         "only using spark.history.ui.acl.enable")

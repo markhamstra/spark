@@ -28,7 +28,10 @@ import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types._
+
+case class TestDataPoint(x: Int, y: Double, s: String, t: TestDataPoint2)
+case class TestDataPoint2(x: Int, s: String)
 
 class DatasetSuite extends QueryTest with SharedSQLContext {
   import testImplicits._
@@ -138,6 +141,15 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
   test("as case class - take") {
     val ds = Seq((1, "a"), (2, "b"), (3, "c")).toDF("b", "a").as[ClassData]
     assert(ds.take(2) === Array(ClassData("a", 1), ClassData("b", 2)))
+  }
+
+  test("as seq of case class - reorder fields by name") {
+    val df = spark.range(3).select(array(struct($"id".cast("int").as("b"), lit("a").as("a"))))
+    val ds = df.as[Seq[ClassData]]
+    assert(ds.collect() === Array(
+      Seq(ClassData("a", 0)),
+      Seq(ClassData("a", 1)),
+      Seq(ClassData("a", 2))))
   }
 
   test("map") {
@@ -962,6 +974,53 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
     assert(dataset.collect() sameElements Array(resultValue, resultValue))
   }
 
+  test("SPARK-18284: Serializer should have correct nullable value") {
+    val df1 = Seq(1, 2, 3, 4).toDF
+    assert(df1.schema(0).nullable == false)
+    val df2 = Seq(Integer.valueOf(1), Integer.valueOf(2)).toDF
+    assert(df2.schema(0).nullable == true)
+
+    val df3 = Seq(Seq(1, 2), Seq(3, 4)).toDF
+    assert(df3.schema(0).nullable == true)
+    assert(df3.schema(0).dataType.asInstanceOf[ArrayType].containsNull == false)
+    val df4 = Seq(Seq("a", "b"), Seq("c", "d")).toDF
+    assert(df4.schema(0).nullable == true)
+    assert(df4.schema(0).dataType.asInstanceOf[ArrayType].containsNull == true)
+
+    val df5 = Seq((0, 1.0), (2, 2.0)).toDF("id", "v")
+    assert(df5.schema(0).nullable == false)
+    assert(df5.schema(1).nullable == false)
+    val df6 = Seq((0, 1.0, "a"), (2, 2.0, "b")).toDF("id", "v1", "v2")
+    assert(df6.schema(0).nullable == false)
+    assert(df6.schema(1).nullable == false)
+    assert(df6.schema(2).nullable == true)
+
+    val df7 = (Tuple1(Array(1, 2, 3)) :: Nil).toDF("a")
+    assert(df7.schema(0).nullable == true)
+    assert(df7.schema(0).dataType.asInstanceOf[ArrayType].containsNull == false)
+
+    val df8 = (Tuple1(Array((null: Integer), (null: Integer))) :: Nil).toDF("a")
+    assert(df8.schema(0).nullable == true)
+    assert(df8.schema(0).dataType.asInstanceOf[ArrayType].containsNull == true)
+
+    val df9 = (Tuple1(Map(2 -> 3)) :: Nil).toDF("m")
+    assert(df9.schema(0).nullable == true)
+    assert(df9.schema(0).dataType.asInstanceOf[MapType].valueContainsNull == false)
+
+    val df10 = (Tuple1(Map(1 -> (null: Integer))) :: Nil).toDF("m")
+    assert(df10.schema(0).nullable == true)
+    assert(df10.schema(0).dataType.asInstanceOf[MapType].valueContainsNull == true)
+
+    val df11 = Seq(TestDataPoint(1, 2.2, "a", null),
+                   TestDataPoint(3, 4.4, "null", (TestDataPoint2(33, "b")))).toDF
+    assert(df11.schema(0).nullable == false)
+    assert(df11.schema(1).nullable == false)
+    assert(df11.schema(2).nullable == true)
+    assert(df11.schema(3).nullable == true)
+    assert(df11.schema(3).dataType.asInstanceOf[StructType].fields(0).nullable == false)
+    assert(df11.schema(3).dataType.asInstanceOf[StructType].fields(1).nullable == true)
+  }
+
   Seq(true, false).foreach { eager =>
     def testCheckpointing(testName: String)(f: => Unit): Unit = {
       test(s"Dataset.checkpoint() - $testName (eager = $eager)") {
@@ -1059,7 +1118,7 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
     // instead of Int for avoiding possible overflow.
     val ds = (0 to 10000).map( i =>
       (i, Seq((i, Seq((i, "This is really not that long of a string")))))).toDS()
-    val sizeInBytes = ds.logicalPlan.statistics.sizeInBytes
+    val sizeInBytes = ds.logicalPlan.stats(sqlConf).sizeInBytes
     // sizeInBytes is 2404280404, before the fix, it overflows to a negative number
     assert(sizeInBytes > 0)
   }
@@ -1073,9 +1132,54 @@ class DatasetSuite extends QueryTest with SharedSQLContext {
     checkDataset(ds2.map(t => t), WithMap("hi", Map(42L -> "foo")))
   }
 
+  test("SPARK-18746: add implicit encoder for BigDecimal, date, timestamp") {
+    // For this implicit encoder, 18 is the default scale
+    assert(spark.range(1).map { x => new java.math.BigDecimal(1) }.head ==
+      new java.math.BigDecimal(1).setScale(18))
+
+    assert(spark.range(1).map { x => scala.math.BigDecimal(1, 18) }.head ==
+      scala.math.BigDecimal(1, 18))
+
+    assert(spark.range(1).map { x => new java.sql.Date(2016, 12, 12) }.head ==
+      new java.sql.Date(2016, 12, 12))
+
+    assert(spark.range(1).map { x => new java.sql.Timestamp(100000) }.head ==
+      new java.sql.Timestamp(100000))
+  }
+
+  test("SPARK-19896: cannot have circular references in in case class") {
+    val errMsg1 = intercept[UnsupportedOperationException] {
+      Seq(CircularReferenceClassA(null)).toDS
+    }
+    assert(errMsg1.getMessage.startsWith("cannot have circular references in class, but got the " +
+      "circular reference of class"))
+    val errMsg2 = intercept[UnsupportedOperationException] {
+      Seq(CircularReferenceClassC(null)).toDS
+    }
+    assert(errMsg2.getMessage.startsWith("cannot have circular references in class, but got the " +
+      "circular reference of class"))
+    val errMsg3 = intercept[UnsupportedOperationException] {
+      Seq(CircularReferenceClassD(null)).toDS
+    }
+    assert(errMsg3.getMessage.startsWith("cannot have circular references in class, but got the " +
+      "circular reference of class"))
+  }
+
   test("SPARK-20125: option of map") {
     val ds = Seq(WithMapInOption(Some(Map(1 -> 1)))).toDS()
     checkDataset(ds, WithMapInOption(Some(Map(1 -> 1))))
+  }
+
+  test("SPARK-20399: do not unescaped regex pattern when ESCAPED_STRING_LITERALS is enabled") {
+    withSQLConf(SQLConf.ESCAPED_STRING_LITERALS.key -> "true") {
+      val data = Seq("\u0020\u0021\u0023", "abc")
+      val df = data.toDF()
+      val rlike1 = df.filter("value rlike '^\\x20[\\x20-\\x23]+$'")
+      val rlike2 = df.filter($"value".rlike("^\\x20[\\x20-\\x23]+$"))
+      val rlike3 = df.filter("value rlike '^\\\\x20[\\\\x20-\\\\x23]+$'")
+      checkAnswer(rlike1, rlike2)
+      assert(rlike3.count() == 0)
+    }
   }
 }
 
@@ -1156,3 +1260,9 @@ object DatasetTransform {
 
 case class Route(src: String, dest: String, cost: Int)
 case class GroupedRoutes(src: String, dest: String, routes: Seq[Route])
+
+case class CircularReferenceClassA(cls: CircularReferenceClassB)
+case class CircularReferenceClassB(cls: CircularReferenceClassA)
+case class CircularReferenceClassC(ar: Array[CircularReferenceClassC])
+case class CircularReferenceClassD(map: Map[String, CircularReferenceClassE])
+case class CircularReferenceClassE(id: String, list: List[CircularReferenceClassD])

@@ -21,12 +21,12 @@ import java.util.{Date, UUID}
 
 import scala.collection.mutable
 
+import org.apache.hadoop.conf.Configurable
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapreduce._
 import org.apache.hadoop.mapreduce.lib.output.FileOutputCommitter
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 
-import org.apache.spark.SparkHadoopWriter
 import org.apache.spark.internal.Logging
 import org.apache.spark.mapred.SparkHadoopMapRedUtil
 
@@ -58,7 +58,13 @@ class HadoopMapReduceCommitProtocol(jobId: String, path: String)
   private def absPathStagingDir: Path = new Path(path, "_temporary-" + jobId)
 
   protected def setupCommitter(context: TaskAttemptContext): OutputCommitter = {
-    context.getOutputFormatClass.newInstance().getOutputCommitter(context)
+    val format = context.getOutputFormatClass.newInstance()
+    // If OutputFormat is Configurable, we should set conf to it.
+    format match {
+      case c: Configurable => c.setConf(context.getConfiguration)
+      case _ => ()
+    }
+    format.getOutputCommitter(context)
   }
 
   override def newTaskTempFile(
@@ -93,7 +99,7 @@ class HadoopMapReduceCommitProtocol(jobId: String, path: String)
   }
 
   private def getFilename(taskContext: TaskAttemptContext, ext: String): String = {
-    // The file name looks like part-r-00000-2dd664f9-d2c4-4ffe-878f-c6c70c1fb0cb_00003.gz.parquet
+    // The file name looks like part-00000-2dd664f9-d2c4-4ffe-878f-c6c70c1fb0cb_00003-c000.parquet
     // Note that %05d does not truncate the split number, so if we have more than 100000 tasks,
     // the file name is fine and won't overflow.
     val split = taskContext.getTaskAttemptID.getTaskID.getId
@@ -102,16 +108,16 @@ class HadoopMapReduceCommitProtocol(jobId: String, path: String)
 
   override def setupJob(jobContext: JobContext): Unit = {
     // Setup IDs
-    val jobId = SparkHadoopWriter.createJobID(new Date, 0)
+    val jobId = SparkHadoopWriterUtils.createJobID(new Date, 0)
     val taskId = new TaskID(jobId, TaskType.MAP, 0)
     val taskAttemptId = new TaskAttemptID(taskId, 0)
 
     // Set up the configuration object
-    jobContext.getConfiguration.set("mapred.job.id", jobId.toString)
-    jobContext.getConfiguration.set("mapred.tip.id", taskAttemptId.getTaskID.toString)
-    jobContext.getConfiguration.set("mapred.task.id", taskAttemptId.toString)
-    jobContext.getConfiguration.setBoolean("mapred.task.is.map", true)
-    jobContext.getConfiguration.setInt("mapred.task.partition", 0)
+    jobContext.getConfiguration.set("mapreduce.job.id", jobId.toString)
+    jobContext.getConfiguration.set("mapreduce.task.id", taskAttemptId.getTaskID.toString)
+    jobContext.getConfiguration.set("mapreduce.task.attempt.id", taskAttemptId.toString)
+    jobContext.getConfiguration.setBoolean("mapreduce.task.ismap", true)
+    jobContext.getConfiguration.setInt("mapreduce.task.partition", 0)
 
     val taskAttemptContext = new TaskAttemptContextImpl(jobContext.getConfiguration, taskAttemptId)
     committer = setupCommitter(taskAttemptContext)

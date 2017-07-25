@@ -65,7 +65,7 @@ class UDFSuite extends QueryTest with SharedSQLContext {
       data.write.parquet(dir.getCanonicalPath)
       spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("test_table")
       val answer = sql("select input_file_name() from test_table").head().getString(0)
-      assert(answer.contains(dir.getCanonicalPath))
+      assert(answer.contains(dir.toURI.getPath))
       assert(sql("select input_file_name() from test_table").distinct().collect().length >= 2)
       spark.catalog.dropTempView("test_table")
     }
@@ -91,6 +91,13 @@ class UDFSuite extends QueryTest with SharedSQLContext {
   test("Simple UDF") {
     spark.udf.register("strLenScala", (_: String).length)
     assert(sql("SELECT strLenScala('test')").head().getInt(0) === 4)
+  }
+
+  test("UDF defined using UserDefinedFunction") {
+    import functions.udf
+    val foo = udf((x: Int) => x + 1)
+    spark.udf.register("foo", foo)
+    assert(sql("select foo(5)").head().getInt(0) == 6)
   }
 
   test("ZeroArgument UDF") {

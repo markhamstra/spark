@@ -28,8 +28,8 @@ import org.apache.spark.sql.test.SharedSQLContext
 class CompactibleFileStreamLogSuite extends SparkFunSuite with SharedSQLContext {
 
   /** To avoid caching of FS objects */
-  override protected val sparkConf =
-    new SparkConf().set(s"spark.hadoop.fs.$scheme.impl.disable.cache", "true")
+  override protected def sparkConf =
+    super.sparkConf.set(s"spark.hadoop.fs.$scheme.impl.disable.cache", "true")
 
   import CompactibleFileStreamLog._
 
@@ -182,7 +182,7 @@ class CompactibleFileStreamLogSuite extends SparkFunSuite with SharedSQLContext 
     }
   }
 
-  testWithUninterruptibleThread("compact") {
+  test("compact") {
     withFakeCompactibleFileStreamLog(
       fileCleanupDelayMs = Long.MaxValue,
       defaultCompactInterval = 3,
@@ -200,7 +200,7 @@ class CompactibleFileStreamLogSuite extends SparkFunSuite with SharedSQLContext 
       })
   }
 
-  testWithUninterruptibleThread("delete expired file") {
+  test("delete expired file") {
     // Set `fileCleanupDelayMs` to 0 so that we can detect the deleting behaviour deterministically
     withFakeCompactibleFileStreamLog(
       fileCleanupDelayMs = 0,

@@ -19,6 +19,7 @@ package org.apache.spark.ui
 
 import java.net.{BindException, ServerSocket}
 import java.net.{URI, URL}
+import java.util.Locale
 import javax.servlet.http.{HttpServlet, HttpServletRequest, HttpServletResponse}
 
 import scala.io.Source
@@ -30,6 +31,7 @@ import org.scalatest.time.SpanSugar._
 
 import org.apache.spark._
 import org.apache.spark.LocalSparkContext._
+import org.apache.spark.util.Utils
 
 class UISuite extends SparkFunSuite {
 
@@ -52,13 +54,16 @@ class UISuite extends SparkFunSuite {
     (conf, new SecurityManager(conf).getSSLOptions("ui"))
   }
 
-  private def sslEnabledConf(): (SparkConf, SSLOptions) = {
+  private def sslEnabledConf(sslPort: Option[Int] = None): (SparkConf, SSLOptions) = {
     val keyStoreFilePath = getTestResourcePath("spark.keystore")
     val conf = new SparkConf()
       .set("spark.ssl.ui.enabled", "true")
       .set("spark.ssl.ui.keyStore", keyStoreFilePath)
       .set("spark.ssl.ui.keyStorePassword", "123456")
       .set("spark.ssl.ui.keyPassword", "123456")
+    sslPort.foreach { p =>
+      conf.set("spark.ssl.ui.port", p.toString)
+    }
     (conf, new SecurityManager(conf).getSSLOptions("ui"))
   }
 
@@ -66,12 +71,12 @@ class UISuite extends SparkFunSuite {
     withSpark(newSparkContext()) { sc =>
       // test if the ui is visible, and all the expected tabs are visible
       eventually(timeout(10 seconds), interval(50 milliseconds)) {
-        val html = Source.fromURL(sc.ui.get.appUIAddress).mkString
+        val html = Source.fromURL(sc.ui.get.webUrl).mkString
         assert(!html.contains("random data that should not be present"))
-        assert(html.toLowerCase.contains("stages"))
-        assert(html.toLowerCase.contains("storage"))
-        assert(html.toLowerCase.contains("environment"))
-        assert(html.toLowerCase.contains("executors"))
+        assert(html.toLowerCase(Locale.ROOT).contains("stages"))
+        assert(html.toLowerCase(Locale.ROOT).contains("storage"))
+        assert(html.toLowerCase(Locale.ROOT).contains("environment"))
+        assert(html.toLowerCase(Locale.ROOT).contains("executors"))
       }
     }
   }
@@ -81,7 +86,7 @@ class UISuite extends SparkFunSuite {
       // test if visible from http://localhost:4040
       eventually(timeout(10 seconds), interval(50 milliseconds)) {
         val html = Source.fromURL("http://localhost:4040").mkString
-        assert(html.toLowerCase.contains("stages"))
+        assert(html.toLowerCase(Locale.ROOT).contains("stages"))
       }
     }
   }
@@ -177,19 +182,18 @@ class UISuite extends SparkFunSuite {
     }
   }
 
-  test("verify appUIAddress contains the scheme") {
+  test("verify webUrl contains the scheme") {
     withSpark(newSparkContext()) { sc =>
       val ui = sc.ui.get
-      val uiAddress = ui.appUIAddress
-      val uiHostPort = ui.appUIHostPort
-      assert(uiAddress.equals("http://" + uiHostPort))
+      val uiAddress = ui.webUrl
+      assert(uiAddress.startsWith("http://") || uiAddress.startsWith("https://"))
     }
   }
 
-  test("verify appUIAddress contains the port") {
+  test("verify webUrl contains the port") {
     withSpark(newSparkContext()) { sc =>
       val ui = sc.ui.get
-      val splitUIAddress = ui.appUIAddress.split(':')
+      val splitUIAddress = ui.webUrl.split(':')
       val boundPort = ui.boundPort
       assert(splitUIAddress(2).toInt == boundPort)
     }
@@ -267,16 +271,34 @@ class UISuite extends SparkFunSuite {
           s"$scheme://localhost:$port/test1/root",
           s"$scheme://localhost:$port/test2/root")
         urls.foreach { url =>
-          val (rc, redirectUrl) = TestUtils.httpResponseCodeAndURL(new URL(url))
+          val rc = TestUtils.httpResponseCode(new URL(url))
           assert(rc === expected, s"Unexpected status $rc for $url")
-          if (rc == HttpServletResponse.SC_FOUND) {
-            assert(
-              TestUtils.httpResponseCode(new URL(redirectUrl.get)) === HttpServletResponse.SC_OK)
-          }
         }
       }
     } finally {
       stopServer(serverInfo)
+    }
+  }
+
+  test("specify both http and https ports separately") {
+    var socket: ServerSocket = null
+    var serverInfo: ServerInfo = null
+    try {
+      socket = new ServerSocket(0)
+
+      // Make sure the SSL port lies way outside the "http + 400" range used as the default.
+      val baseSslPort = Utils.userPort(socket.getLocalPort(), 10000)
+      val (conf, sslOptions) = sslEnabledConf(sslPort = Some(baseSslPort))
+
+      serverInfo = JettyUtils.startJettyServer("0.0.0.0", socket.getLocalPort() + 1,
+        sslOptions, Seq[ServletContextHandler](), conf, "server1")
+
+      val notAllowed = Utils.userPort(serverInfo.boundPort, 400)
+      assert(serverInfo.securePort.isDefined)
+      assert(serverInfo.securePort.get != Utils.userPort(serverInfo.boundPort, 400))
+    } finally {
+      stopServer(serverInfo)
+      closeSocket(socket)
     }
   }
 

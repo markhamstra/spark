@@ -138,8 +138,6 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
   /**
    * Attempt to clean up any ByteBuffer in this ChunkedByteBuffer which is direct or memory-mapped.
    * See [[StorageUtils.dispose]] for more information.
-   *
-   * See also [[unmap]]
    */
   def dispose(): Unit = {
     if (!disposed) {
@@ -148,18 +146,6 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
     }
   }
 
-  /**
-   * Attempt to unmap any ByteBuffer in this ChunkedByteBuffer if it is memory-mapped. See
-   * [[StorageUtils.unmap]] for more information.
-   *
-   * See also [[dispose]]
-   */
-  def unmap(): Unit = {
-    if (!disposed) {
-      chunks.foreach(StorageUtils.unmap)
-      disposed = true
-    }
-  }
 }
 
 /**
@@ -168,7 +154,7 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
  * @param dispose if true, `ChunkedByteBuffer.dispose()` will be called at the end of the stream
  *                in order to close any memory-mapped files which back the buffer.
  */
-private class ChunkedByteBufferInputStream(
+private[spark] class ChunkedByteBufferInputStream(
     var chunkedByteBuffer: ChunkedByteBuffer,
     dispose: Boolean)
   extends InputStream {

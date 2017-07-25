@@ -60,7 +60,7 @@ object ExpressionEncoder {
     val cls = mirror.runtimeClass(tpe)
     val flat = !ScalaReflection.definedByConstructorParams(tpe)
 
-    val inputObject = BoundReference(0, ScalaReflection.dataTypeFor[T], nullable = true)
+    val inputObject = BoundReference(0, ScalaReflection.dataTypeFor[T], nullable = !cls.isPrimitive)
     val nullSafeInput = if (flat) {
       inputObject
     } else {
@@ -71,10 +71,7 @@ object ExpressionEncoder {
     val serializer = ScalaReflection.serializerFor[T](nullSafeInput)
     val deserializer = ScalaReflection.deserializerFor[T]
 
-    val schema = ScalaReflection.schemaFor[T] match {
-      case ScalaReflection.Schema(s: StructType, _) => s
-      case ScalaReflection.Schema(dt, nullable) => new StructType().add("value", dt, nullable)
-    }
+    val schema = serializer.dataType
 
     new ExpressionEncoder[T](
       schema,
@@ -232,9 +229,9 @@ case class ExpressionEncoder[T](
   // serializer expressions are used to encode an object to a row, while the object is usually an
   // intermediate value produced inside an operator, not from the output of the child operator. This
   // is quite different from normal expressions, and `AttributeReference` doesn't work here
-  // (intermediate value is not an attribute). We assume that all serializer expressions use a same
-  // `BoundReference` to refer to the object, and throw exception if they don't.
-  assert(serializer.forall(_.references.isEmpty), "serializer cannot reference to any attributes.")
+  // (intermediate value is not an attribute). We assume that all serializer expressions use the
+  // same `BoundReference` to refer to the object, and throw exception if they don't.
+  assert(serializer.forall(_.references.isEmpty), "serializer cannot reference any attributes.")
   assert(serializer.flatMap { ser =>
     val boundRefs = ser.collect { case b: BoundReference => b }
     assert(boundRefs.nonEmpty,
@@ -291,7 +288,7 @@ case class ExpressionEncoder[T](
   } catch {
     case e: Exception =>
       throw new RuntimeException(
-        s"Error while encoding: $e\n${serializer.map(_.treeString).mkString("\n")}", e)
+        s"Error while encoding: $e\n${serializer.map(_.simpleString).mkString("\n")}", e)
   }
 
   /**
@@ -303,7 +300,7 @@ case class ExpressionEncoder[T](
     constructProjection(row).get(0, ObjectType(clsTag.runtimeClass)).asInstanceOf[T]
   } catch {
     case e: Exception =>
-      throw new RuntimeException(s"Error while decoding: $e\n${deserializer.treeString}", e)
+      throw new RuntimeException(s"Error while decoding: $e\n${deserializer.simpleString}", e)
   }
 
   /**

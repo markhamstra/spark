@@ -78,6 +78,12 @@ jQuery.extend( jQuery.fn.dataTableExt.oSort, {
     }
 } );
 
+jQuery.extend( jQuery.fn.dataTableExt.ofnSearch, {
+    "appid-numeric": function ( a ) {
+        return a.replace(/[\r\n]/g, " ").replace(/<.*?>/g, "");
+    }
+} );
+
 $(document).ajaxStop($.unblockUI);
 $(document).ajaxStart(function(){
     $.blockUI({ message: '<h3>Loading history summary...</h3>'});
@@ -189,7 +195,7 @@ $(document).ready(function() {
         }
 
         $(selector).DataTable(conf);
-        $('#hisotry-summary [data-toggle="tooltip"]').tooltip();
+        $('#history-summary [data-toggle="tooltip"]').tooltip();
       });
     });
 });

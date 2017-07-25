@@ -32,7 +32,6 @@ import org.json4s.jackson.Serialization
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.util.UninterruptibleThread
 
 
 /**
@@ -63,34 +62,8 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
   val metadataPath = new Path(path)
   protected val fileManager = createFileManager()
 
-  runUninterruptiblyIfLocal {
-    if (!fileManager.exists(metadataPath)) {
-      fileManager.mkdirs(metadataPath)
-    }
-  }
-
-  private def runUninterruptiblyIfLocal[T](body: => T): T = {
-    if (fileManager.isLocalFileSystem && Thread.currentThread.isInstanceOf[UninterruptibleThread]) {
-      // When using a local file system, some file system APIs like "create" or "mkdirs" must be
-      // called in [[org.apache.spark.util.UninterruptibleThread]] so that interrupts can be
-      // disabled.
-      //
-      // This is because there is a potential dead-lock in Hadoop "Shell.runCommand" before
-      // 2.5.0 (HADOOP-10622). If the thread running "Shell.runCommand" is interrupted, then
-      // the thread can get deadlocked. In our case, file system APIs like "create" or "mkdirs"
-      // will call "Shell.runCommand" to set the file permission if using the local file system,
-      // and can get deadlocked if the stream execution thread is stopped by interrupt.
-      //
-      // Hence, we use "runUninterruptibly" here to disable interrupts here. (SPARK-14131)
-      Thread.currentThread.asInstanceOf[UninterruptibleThread].runUninterruptibly {
-        body
-      }
-    } else {
-      // For a distributed file system, such as HDFS or S3, if the network is broken, write
-      // operations may just hang until timeout. We should enable interrupts to allow stopping
-      // the query fast.
-      body
-    }
+  if (!fileManager.exists(metadataPath)) {
+    fileManager.mkdirs(metadataPath)
   }
 
   /**
@@ -133,11 +106,10 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
    * metadata has already been stored, this method will return `false`.
    */
   override def add(batchId: Long, metadata: T): Boolean = {
+    require(metadata != null, "'null' metadata cannot written to a metadata log")
     get(batchId).map(_ => false).getOrElse {
       // Only write metadata when the batch has not yet been written
-      runUninterruptiblyIfLocal {
-        writeBatch(batchId, metadata)
-      }
+      writeBatch(batchId, metadata)
       true
     }
   }
@@ -154,7 +126,7 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
           IOUtils.closeQuietly(output)
         }
       } catch {
-        case e: IOException if isFileAlreadyExistsException(e) =>
+        case e: FileAlreadyExistsException =>
           // Failed to create "tempPath". There are two cases:
           // 1. Someone is creating "tempPath" too.
           // 2. This is a restart. "tempPath" has already been created but not moved to the final
@@ -192,7 +164,7 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
       val crcPath = new Path(tempPath.getParent(), s".${tempPath.getName()}.crc")
       if (fileManager.exists(crcPath)) fileManager.delete(crcPath)
     } catch {
-      case e: IOException if isFileAlreadyExistsException(e) =>
+      case e: FileAlreadyExistsException =>
         // If "rename" fails, it means some other "HDFSMetadataLog" has committed the batch.
         // So throw an exception to tell the user this is not a valid behavior.
         throw new ConcurrentModificationException(
@@ -200,13 +172,6 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
     } finally {
       fileManager.delete(tempPath)
     }
-  }
-
-  private def isFileAlreadyExistsException(e: IOException): Boolean = {
-    e.isInstanceOf[FileAlreadyExistsException] ||
-      // Old Hadoop versions don't throw FileAlreadyExistsException. Although it's fixed in
-      // HADOOP-9361 in Hadoop 2.5, we still need to support old Hadoop versions.
-      (e.getMessage != null && e.getMessage.startsWith("File already exists: "))
   }
 
   /**
@@ -371,9 +336,6 @@ object HDFSMetadataLog {
 
     /** Recursively delete a path if it exists. Should not throw exception if file doesn't exist. */
     def delete(path: Path): Unit
-
-    /** Whether the file systme is a local FS. */
-    def isLocalFileSystem: Boolean
   }
 
   /**
@@ -417,13 +379,6 @@ object HDFSMetadataLog {
         case e: FileNotFoundException =>
         // ignore if file has already been deleted
       }
-    }
-
-    override def isLocalFileSystem: Boolean = fc.getDefaultFileSystem match {
-      case _: local.LocalFs | _: local.RawLocalFs =>
-        // LocalFs = RawLocalFs + ChecksumFs
-        true
-      case _ => false
     }
   }
 
@@ -480,13 +435,6 @@ object HDFSMetadataLog {
         case e: FileNotFoundException =>
           // ignore if file has already been deleted
       }
-    }
-
-    override def isLocalFileSystem: Boolean = fs match {
-      case _: LocalFileSystem | _: RawLocalFileSystem =>
-        // LocalFileSystem = RawLocalFileSystem + ChecksumFileSystem
-        true
-      case _ => false
     }
   }
 }

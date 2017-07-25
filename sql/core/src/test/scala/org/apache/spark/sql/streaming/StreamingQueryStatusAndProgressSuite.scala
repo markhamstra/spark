@@ -42,7 +42,7 @@ class StreamingQueryStatusAndProgressSuite extends StreamTest with Eventually {
 
   test("StreamingQueryProgress - prettyJson") {
     val json1 = testProgress1.prettyJson
-    assert(json1 ===
+    assert(json1.equalsIgnoreCRLF(
       s"""
         |{
         |  "id" : "${testProgress1.id.toString}",
@@ -75,12 +75,12 @@ class StreamingQueryStatusAndProgressSuite extends StreamTest with Eventually {
         |    "description" : "sink"
         |  }
         |}
-      """.stripMargin.trim)
+      """.stripMargin.trim))
     assert(compact(parse(json1)) === testProgress1.json)
 
     val json2 = testProgress2.prettyJson
     assert(
-      json2 ===
+      json2.equalsIgnoreCRLF(
         s"""
          |{
          |  "id" : "${testProgress2.id.toString}",
@@ -105,7 +105,7 @@ class StreamingQueryStatusAndProgressSuite extends StreamTest with Eventually {
          |    "description" : "sink"
          |  }
          |}
-      """.stripMargin.trim)
+      """.stripMargin.trim))
     assert(compact(parse(json2)) === testProgress2.json)
   }
 
@@ -121,14 +121,14 @@ class StreamingQueryStatusAndProgressSuite extends StreamTest with Eventually {
 
   test("StreamingQueryStatus - prettyJson") {
     val json = testStatus.prettyJson
-    assert(json ===
+    assert(json.equalsIgnoreCRLF(
       """
         |{
         |  "message" : "active",
         |  "isDataAvailable" : true,
         |  "isTriggerActive" : false
         |}
-      """.stripMargin.trim)
+      """.stripMargin.trim))
   }
 
   test("StreamingQueryStatus - json") {

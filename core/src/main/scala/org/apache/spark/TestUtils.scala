@@ -20,19 +20,19 @@ package org.apache.spark
 import java.io.{ByteArrayInputStream, File, FileInputStream, FileOutputStream}
 import java.net.{HttpURLConnection, URI, URL}
 import java.nio.charset.StandardCharsets
-import java.nio.file.Paths
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.Arrays
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.jar.{JarEntry, JarOutputStream}
 import javax.net.ssl._
-import javax.servlet.http.HttpServletResponse
 import javax.tools.{JavaFileObject, SimpleJavaFileObject, ToolProvider}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.sys.process.{Process, ProcessLogger}
+import scala.util.Try
 
 import com.google.common.io.{ByteStreams, Files}
 
@@ -97,7 +97,10 @@ private[spark] object TestUtils {
     val jarStream = new JarOutputStream(jarFileStream, new java.util.jar.Manifest())
 
     for (file <- files) {
-      val jarEntry = new JarEntry(Paths.get(directoryPrefix.getOrElse(""), file.getName).toString)
+      // The `name` for the argument in `JarEntry` should use / for its separator. This is
+      // ZIP specification.
+      val prefix = directoryPrefix.map(d => s"$d/").getOrElse("")
+      val jarEntry = new JarEntry(prefix + file.getName)
       jarStream.putNextEntry(jarEntry)
 
       val in = new FileInputStream(file)
@@ -187,12 +190,20 @@ private[spark] object TestUtils {
   }
 
   /**
-   * Returns the response code and url (if redirected) from an HTTP(S) URL.
+   * Test if a command is available.
    */
-  def httpResponseCodeAndURL(
+  def testCommandAvailable(command: String): Boolean = {
+    val attempt = Try(Process(command).run(ProcessLogger(_ => ())).exitValue())
+    attempt.isSuccess && attempt.get == 0
+  }
+
+  /**
+   * Returns the response code from an HTTP(S) URL.
+   */
+  def httpResponseCode(
       url: URL,
       method: String = "GET",
-      headers: Seq[(String, String)] = Nil): (Int, Option[String]) = {
+      headers: Seq[(String, String)] = Nil): Int = {
     val connection = url.openConnection().asInstanceOf[HttpURLConnection]
     connection.setRequestMethod(method)
     headers.foreach { case (k, v) => connection.setRequestProperty(k, v) }
@@ -211,30 +222,16 @@ private[spark] object TestUtils {
       sslCtx.init(null, Array(trustManager), new SecureRandom())
       connection.asInstanceOf[HttpsURLConnection].setSSLSocketFactory(sslCtx.getSocketFactory())
       connection.asInstanceOf[HttpsURLConnection].setHostnameVerifier(verifier)
-      connection.setInstanceFollowRedirects(false)
     }
 
     try {
       connection.connect()
-      if (connection.getResponseCode == HttpServletResponse.SC_FOUND) {
-        (connection.getResponseCode, Option(connection.getHeaderField("Location")))
-      } else {
-        (connection.getResponseCode(), None)
-      }
+      connection.getResponseCode()
     } finally {
       connection.disconnect()
     }
   }
 
-  /**
-   * Returns the response code from an HTTP(S) URL.
-   */
-  def httpResponseCode(
-      url: URL,
-      method: String = "GET",
-      headers: Seq[(String, String)] = Nil): Int = {
-    httpResponseCodeAndURL(url, method, headers)._1
-  }
 }
 
 

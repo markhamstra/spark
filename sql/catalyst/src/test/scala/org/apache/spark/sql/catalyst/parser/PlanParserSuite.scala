@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst.parser
 
 import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.analysis.{UnresolvedGenerator, UnresolvedInlineTable, UnresolvedTableValuedFunction}
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction, UnresolvedGenerator, UnresolvedInlineTable, UnresolvedTableValuedFunction}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -79,7 +79,7 @@ class PlanParserSuite extends PlanTest {
     def cte(plan: LogicalPlan, namedPlans: (String, LogicalPlan)*): With = {
       val ctes = namedPlans.map {
         case (name, cte) =>
-          name -> SubqueryAlias(name, cte, None)
+          name -> SubqueryAlias(name, cte)
       }
       With(plan, ctes)
     }
@@ -152,10 +152,7 @@ class PlanParserSuite extends PlanTest {
     val orderSortDistrClusterClauses = Seq(
       ("", basePlan),
       (" order by a, b desc", basePlan.orderBy('a.asc, 'b.desc)),
-      (" sort by a, b desc", basePlan.sortBy('a.asc, 'b.desc)),
-      (" distribute by a, b", basePlan.distribute('a, 'b)()),
-      (" distribute by a sort by b", basePlan.distribute('a)().sortBy('b.asc)),
-      (" cluster by a, b", basePlan.distribute('a, 'b)().sortBy('a.asc, 'b.asc))
+      (" sort by a, b desc", basePlan.sortBy('a.asc, 'b.desc))
     )
 
     orderSortDistrClusterClauses.foreach {
@@ -179,23 +176,14 @@ class PlanParserSuite extends PlanTest {
     def insert(
         partition: Map[String, Option[String]],
         overwrite: Boolean = false,
-        ifNotExists: Boolean = false): LogicalPlan =
-      InsertIntoTable(
-        table("s"), partition, plan,
-        OverwriteOptions(
-          overwrite,
-          if (overwrite && partition.nonEmpty) {
-            partition.map(kv => (kv._1, kv._2.get))
-          } else {
-            Map.empty
-          }),
-        ifNotExists)
+        ifPartitionNotExists: Boolean = false): LogicalPlan =
+      InsertIntoTable(table("s"), partition, plan, overwrite, ifPartitionNotExists)
 
     // Single inserts
     assertEqual(s"insert overwrite table s $sql",
       insert(Map.empty, overwrite = true))
     assertEqual(s"insert overwrite table s partition (e = 1) if not exists $sql",
-      insert(Map("e" -> Option("1")), overwrite = true, ifNotExists = true))
+      insert(Map("e" -> Option("1")), overwrite = true, ifPartitionNotExists = true))
     assertEqual(s"insert into s $sql",
       insert(Map.empty))
     assertEqual(s"insert into table s partition (c = 'd', e = 1) $sql",
@@ -205,9 +193,9 @@ class PlanParserSuite extends PlanTest {
     val plan2 = table("t").where('x > 5).select(star())
     assertEqual("from t insert into s select * limit 1 insert into u select * where x > 5",
       InsertIntoTable(
-        table("s"), Map.empty, plan.limit(1), OverwriteOptions(false), ifNotExists = false).union(
+        table("s"), Map.empty, plan.limit(1), false, ifPartitionNotExists = false).union(
         InsertIntoTable(
-          table("u"), Map.empty, plan2, OverwriteOptions(false), ifNotExists = false)))
+          table("u"), Map.empty, plan2, false, ifPartitionNotExists = false)))
   }
 
   test ("insert with if not exists") {
@@ -233,9 +221,14 @@ class PlanParserSuite extends PlanTest {
 
     // Grouping Sets
     assertEqual(s"$sql grouping sets((a, b), (a), ())",
-      GroupingSets(Seq(0, 1, 3), Seq('a, 'b), table("d"), Seq('a, 'b, 'sum.function('c).as("c"))))
-    intercept(s"$sql grouping sets((a, b), (c), ())",
-      "c doesn't show up in the GROUP BY list")
+      GroupingSets(Seq(Seq('a, 'b), Seq('a), Seq()), Seq('a, 'b), table("d"),
+        Seq('a, 'b, 'sum.function('c).as("c"))))
+
+    val m = intercept[ParseException] {
+      parsePlan("SELECT a, b, count(distinct a, distinct b) as c FROM d GROUP BY a, b")
+    }.getMessage
+    assert(m.contains("extraneous input 'b'"))
+
   }
 
   test("limit") {
@@ -502,5 +495,116 @@ class PlanParserSuite extends PlanTest {
     // !> is equivalent to <=
     assertEqual("select a, b from db.c where x !> 1",
       table("db", "c").where('x <= 1).select('a, 'b))
+  }
+
+  test("select hint syntax") {
+    // Hive compatibility: Missing parameter raises ParseException.
+    val m = intercept[ParseException] {
+      parsePlan("SELECT /*+ HINT() */ * FROM t")
+    }.getMessage
+    assert(m.contains("mismatched input"))
+
+    // Disallow space as the delimiter.
+    val m3 = intercept[ParseException] {
+      parsePlan("SELECT /*+ INDEX(a b c) */ * from default.t")
+    }.getMessage
+    assert(m3.contains("mismatched input 'b' expecting"))
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT */ * FROM t"),
+      UnresolvedHint("HINT", Seq.empty, table("t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ BROADCASTJOIN(u) */ * FROM t"),
+      UnresolvedHint("BROADCASTJOIN", Seq($"u"), table("t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ MAPJOIN(u) */ * FROM t"),
+      UnresolvedHint("MAPJOIN", Seq($"u"), table("t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ STREAMTABLE(a,b,c) */ * FROM t"),
+      UnresolvedHint("STREAMTABLE", Seq($"a", $"b", $"c"), table("t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ INDEX(t, emp_job_ix) */ * FROM t"),
+      UnresolvedHint("INDEX", Seq($"t", $"emp_job_ix"), table("t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ MAPJOIN(`default.t`) */ * from `default.t`"),
+      UnresolvedHint("MAPJOIN", Seq(UnresolvedAttribute.quoted("default.t")),
+        table("default.t").select(star())))
+
+    comparePlans(
+      parsePlan("SELECT /*+ MAPJOIN(t) */ a from t where true group by a order by a"),
+      UnresolvedHint("MAPJOIN", Seq($"t"),
+        table("t").where(Literal(true)).groupBy('a)('a)).orderBy('a.asc))
+  }
+
+  test("SPARK-20854: select hint syntax with expressions") {
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, array(1, 2, 3)) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a",
+        UnresolvedFunction("array", Literal(1) :: Literal(2) :: Literal(3) :: Nil, false)),
+        table("t").select(star())
+      )
+    )
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, 5, 'a', b) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a", Literal(5), Literal("a"), $"b"),
+        table("t").select(star())
+      )
+    )
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1('a', (b, c), (1, 2)) */ * from t"),
+      UnresolvedHint("HINT1",
+        Seq(Literal("a"),
+          CreateStruct($"b" :: $"c" :: Nil),
+          CreateStruct(Literal(1) :: Literal(2) :: Nil)),
+        table("t").select(star())
+      )
+    )
+  }
+
+  test("SPARK-20854: multiple hints") {
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, 1) hint2(b, 2) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a", Literal(1)),
+        UnresolvedHint("hint2", Seq($"b", Literal(2)),
+          table("t").select(star())
+        )
+      )
+    )
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, 1),hint2(b, 2) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a", Literal(1)),
+        UnresolvedHint("hint2", Seq($"b", Literal(2)),
+          table("t").select(star())
+        )
+      )
+    )
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, 1) */ /*+ hint2(b, 2) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a", Literal(1)),
+        UnresolvedHint("hint2", Seq($"b", Literal(2)),
+          table("t").select(star())
+        )
+      )
+    )
+
+    comparePlans(
+      parsePlan("SELECT /*+ HINT1(a, 1), hint2(b, 2) */ /*+ hint3(c, 3) */ * from t"),
+      UnresolvedHint("HINT1", Seq($"a", Literal(1)),
+        UnresolvedHint("hint2", Seq($"b", Literal(2)),
+          UnresolvedHint("hint3", Seq($"c", Literal(3)),
+            table("t").select(star())
+          )
+        )
+      )
+    )
   }
 }
