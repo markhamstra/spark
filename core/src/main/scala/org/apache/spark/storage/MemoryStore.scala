@@ -245,15 +245,12 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
 
   /**
    * This api is used by CSD as a post process of [[unrollSafely]] to detect
-   * partitions larger than 2G in estimated object size when there is not enough memory for
-   * unrolling.
-   * This api continues fetching until we "see" 2G of object in size or values exhausted,
-   * with the assumption that the amount of memory specified by sizeLimit parameter are available
-   * in spark's user memory space per thread and per operator/RDD compute.
-   *
-   * Parameter sizeLimit is at most as large as csdCacheBlockSizeLimit (which is also upper bounded
-   * by Integer.MAX_VALUE), we can make sure user memory space has at least 2G available
-   * per thread for worst case.
+   * large size partitions under shortage of unroll memory.
+   * This api continues fetching into user memory space until we "see" total object size
+   * exceeds csdCacheBlockSizeLimit or when inputValues exhausted.
+   * In practice, we need to make sure we have at least csdCacheBlockSizeLimit
+   * amount of memory space available from user space per thread, for worst case.
+   * We can also tune csdCacheBlockSizeLimit down according to our need.
    */
   private[this] def fetchUntilCsdBlockSizeLimit[T](
       blockId: BlockId,
@@ -371,13 +368,17 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
           logBlockSizeLimitMessage(blockId, currentSize)
           Right(vector.iterator ++ values, shouldCache)
         } else {
-          // could be false positive because we have not seen enough of the values
-          // continue the fetching using memory from user
+          // When we ran out of unroll memory from spark's storage space,
+          // a true value of shouldCache be false positive because we have
+          // not seen enough of the values.
+          // Try continue the fetching using memory from user space (assuming that
+          // enough memory is available). see [[fetchUntilCsdBlockSizeLimit]]
           shouldCache = fetchUntilCsdBlockSizeLimit(blockId, values, vector)
           if (!shouldCache) {
             logBlockSizeLimitMessage(blockId, vector.estimateSize())
           } else {
-            // We ran out of space while unrolling the values for this block
+            // spark's original logging message indicating insufficient Unroll memory
+            // and caller will consider drop it to disk if applicable.
             logUnrollFailureMessage(blockId, vector.estimateSize())
           }
           Right(vector.iterator ++ values, shouldCache)
@@ -659,10 +660,16 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
     logMemoryUsage()
   }
 
-  private def logBlockSizeLimitMessage(blockId: BlockId, currentSize: Long): Unit = {
+  /**
+   * Log a warning for when a over size block is detected.
+   *
+   * @param blockId ID of the block we are trying to unroll.
+   * @param finalVectorSize Final size of the vector when the block size limit is reached.
+   */
+  private def logBlockSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
     logWarning(
       s"Block size limit reached: $blockId! " +
-        s"(computed ${Utils.bytesToString(currentSize)} so far)"
+        s"(computed ${Utils.bytesToString(finalVectorSize)} so far)"
     )
     logMemoryUsage()
   }
