@@ -88,10 +88,10 @@ class PoolSuite extends SparkFunSuite with LocalSparkContext {
     schedulableBuilder.buildPools()
 
     // Ensure that the XML file was read in correctly.
-    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FIFO)
+    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FAIR)
     verifyPool(rootPool, "1", 2, 1, FIFO)
     verifyPool(rootPool, "2", 3, 1, FIFO)
-    verifyPool(rootPool, "3", 0, 1, FIFO)
+    verifyPool(rootPool, "3", 0, 1, FAIR)
 
     val properties1 = new Properties()
     properties1.setProperty(schedulableBuilder.FAIR_SCHEDULER_PROPERTIES, "1")
@@ -187,18 +187,18 @@ class PoolSuite extends SparkFunSuite with LocalSparkContext {
     val schedulableBuilder = new FairSchedulableBuilder(rootPool, conf)
     schedulableBuilder.buildPools()
 
-    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FIFO)
+    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FAIR)
     verifyPool(rootPool, "pool_with_invalid_min_share", 0, 2, FAIR)
     verifyPool(rootPool, "pool_with_invalid_weight", 1, 1, FAIR)
-    verifyPool(rootPool, "pool_with_invalid_scheduling_mode", 3, 2, FIFO)
+    verifyPool(rootPool, "pool_with_invalid_scheduling_mode", 3, 2, FAIR)
     verifyPool(rootPool, "pool_with_non_uppercase_scheduling_mode", 2, 1, FAIR)
-    verifyPool(rootPool, "pool_with_NONE_scheduling_mode", 1, 2, FIFO)
+    verifyPool(rootPool, "pool_with_NONE_scheduling_mode", 1, 2, FAIR)
     verifyPool(rootPool, "pool_with_whitespace_min_share", 0, 2, FAIR)
     verifyPool(rootPool, "pool_with_whitespace_weight", 1, 1, FAIR)
-    verifyPool(rootPool, "pool_with_whitespace_scheduling_mode", 3, 2, FIFO)
+    verifyPool(rootPool, "pool_with_whitespace_scheduling_mode", 3, 2, FAIR)
     verifyPool(rootPool, "pool_with_empty_min_share", 0, 3, FAIR)
     verifyPool(rootPool, "pool_with_empty_weight", 2, 1, FAIR)
-    verifyPool(rootPool, "pool_with_empty_scheduling_mode", 2, 2, FIFO)
+    verifyPool(rootPool, "pool_with_empty_scheduling_mode", 2, 2, FAIR)
     verifyPool(rootPool, "pool_with_surrounded_whitespace", 3, 2, FAIR)
   }
 
