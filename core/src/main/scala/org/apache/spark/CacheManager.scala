@@ -17,11 +17,11 @@
 
 package org.apache.spark
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage._
+
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Spark class responsible for passing RDDs partition contents to the BlockManager and making
@@ -174,7 +174,13 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
           updatedBlocks ++=
             blockManager.putArray(key, arr, level, tellMaster = true, effectiveStorageLevel)
           arr.iterator.asInstanceOf[Iterator[T]]
-        case Right(it) =>
+
+        case Right((it, false)) =>
+          // big block detected when unrolling
+          val returnValues = it.asInstanceOf[Iterator[T]]
+          returnValues
+
+        case Right((it, true)) =>
           // There is not enough space to cache this partition in memory
           val returnValues = it.asInstanceOf[Iterator[T]]
           if (putLevel.useDisk) {
