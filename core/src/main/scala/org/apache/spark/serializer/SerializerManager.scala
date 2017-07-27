@@ -181,8 +181,7 @@ private[spark] class SerializerManager(
   def dataSerializeWithExplicitClassTag(
       blockId: BlockId,
       values: Iterator[_],
-      classTag: ClassTag[_],
-      allowEncryption: Boolean = true): ChunkedByteBuffer = {
+      classTag: ClassTag[_]): ChunkedByteBuffer = {
     val bbos = new ChunkedByteBufferOutputStream(1024 * 1024 * 4, ByteBuffer.allocate)
     val byteStream = new BufferedOutputStream(bbos)
     val autoPick = !blockId.isInstanceOf[StreamBlockId]
@@ -197,8 +196,7 @@ private[spark] class SerializerManager(
    */
   def dataDeserializeStream[T](
       blockId: BlockId,
-      inputStream: InputStream,
-      maybeEncrypted: Boolean = true)
+      inputStream: InputStream)
       (classTag: ClassTag[T]): Iterator[T] = {
     val stream = new BufferedInputStream(inputStream)
     val autoPick = !blockId.isInstanceOf[StreamBlockId]

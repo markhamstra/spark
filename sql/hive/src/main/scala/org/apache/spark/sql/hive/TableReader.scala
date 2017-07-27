@@ -141,7 +141,7 @@ class HadoopTableReader(
     val deserializedHadoopRDD = hadoopRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
-      deserializer.initialize(hconf, tableDesc.getProperties)
+      deserializer.initialize(hconf, localTableDesc.getProperties)
       HadoopTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer,
         localEmptyStringsAsNulls)
     }
