@@ -484,15 +484,16 @@ private[spark] class TaskSchedulerImpl(
             // one may be triggered by a dropped connection from the slave while another may be a
             // report of executor termination from Mesos. We produce log messages for both so we
             // eventually report the termination reason.
-            logError(s"Lost an executor $executorId (already removed): $reason")
+            // Another cause of this could be that this executor is never launched with any task
+            logError(s"Lost an executor $executorId (already removed or never used): $reason")
         }
       }
     }
     // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock
-    if (failedExecutor.isDefined) {
-      dagScheduler.executorLost(failedExecutor.get)
-      backend.reviveOffers()
-    }
+    // When an executor is never used, we should ask dag scheduler to clean it up so that it can be
+    // removed from BlockManager
+    dagScheduler.executorLost(executorId)
+    backend.reviveOffers()
   }
 
   private def logExecutorLoss(
