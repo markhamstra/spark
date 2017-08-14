@@ -17,14 +17,11 @@
 
 package org.apache.spark.sql.execution
 
-import scala.collection.mutable
-
 import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.{MapOutputStatistics, SparkConf, SparkFunSuite}
 import org.apache.spark.sql._
 import org.apache.spark.sql.execution.exchange.{ExchangeCoordinator, ShuffleExchange}
-import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 
@@ -465,9 +462,6 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
 
         // Then, let's look at the number of post-shuffle partitions estimated
         // by the ExchangeCoordinator.
-        // scalastyle:off
-        println(join.queryExecution.executedPlan)
-        // scalastyle:on
         val exchanges = join.queryExecution.executedPlan.collect {
           case e: ShuffleExchange => e
         }
@@ -542,7 +536,7 @@ class ExchangeCoordinatorSuite extends SparkFunSuite with BeforeAndAfterAll {
                   minNumPostShufflePartitions match {
                     case Some(_) =>
                       assert(coordinator.isDefined)
-                      assert(newPartitioning.numPartitions === 5)
+                      assert(newPartitioning.numPartitions === 3)
                     case None =>
                       assert(coordinator.isDefined)
                   }
