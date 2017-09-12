@@ -184,10 +184,16 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       })
     } else {
       val rootPath = tablePath
+      val paths: Seq[Path] =
+        if (fileType != "parquet") {
+          Seq(rootPath)
+        } else {
+          selectParquetLocationDirectories(relation.tableMeta.identifier.table, Option(rootPath))
+        }
       withTableCreationLock(tableIdentifier, {
         val cached = getCached(
           tableIdentifier,
-          Seq(rootPath),
+          paths,
           metastoreSchema,
           fileFormatClass,
           None)
@@ -197,7 +203,7 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
             LogicalRelation(
               DataSource(
                 sparkSession = sparkSession,
-                paths = rootPath.toString :: Nil,
+                paths = paths.map(_.toString),
                 userSpecifiedSchema = Option(dataSchema),
                 // We don't support hive bucketed tables, only ones we write out.
                 bucketSpec = None,
@@ -220,6 +226,26 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       case (a1, a2) => a1.withExprId(a2.exprId)
     }
     result.copy(output = newOutput)
+  }
+
+  private[hive] def selectParquetLocationDirectories(
+                                                      tableName: String,
+                                                      locationOpt: Option[Path]): Seq[Path] = {
+    val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
+    val paths: Option[Seq[Path]] = for {
+      selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
+      location <- locationOpt
+      fs = location.getFileSystem(hadoopConf)
+      selectedPaths <- selector.selectFiles(tableName, fs, location)
+      selectedDir = for {
+        selectedPath <- selectedPaths
+        if selectedPath
+          .getFileSystem(hadoopConf)
+          .isDirectory(selectedPath)
+      } yield selectedPath
+      if selectedDir.nonEmpty
+    } yield selectedDir
+    paths.getOrElse(Seq(locationOpt.orNull))
   }
 
   private def inferIfNeeded(

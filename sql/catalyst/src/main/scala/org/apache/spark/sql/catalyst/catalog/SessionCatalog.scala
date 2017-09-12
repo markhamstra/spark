@@ -667,7 +667,9 @@ class SessionCatalog(
           SubqueryAlias(table, viewDef)
         }.getOrElse(throw new NoSuchTableException(db, table))
       } else if (name.database.isDefined || !tempTables.contains(table)) {
-        val metadata = externalCatalog.getTable(db, table)
+        val tableNamePreprocessor = externalCatalog.getTableNamePreprocessor
+        val tableNameInMetastore = tableNamePreprocessor(table)
+        val metadata = externalCatalog.getTable(db, tableNameInMetastore).withTableName(table)
         if (metadata.tableType == CatalogTableType.VIEW) {
           val viewText = metadata.viewText.getOrElse(sys.error("Invalid view without text."))
           // The relation is a view, so we wrap the relation by:
