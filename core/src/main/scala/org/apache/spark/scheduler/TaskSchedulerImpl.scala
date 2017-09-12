@@ -492,8 +492,13 @@ private[spark] class TaskSchedulerImpl(
     // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock
     // When an executor is never used, we should ask dag scheduler to clean it up so that it can be
     // removed from BlockManager
-    dagScheduler.executorLost(executorId)
-    backend.reviveOffers()
+    if (failedExecutor.isDefined) {
+      dagScheduler.executorLost(executorId)
+      backend.reviveOffers()
+    } else {
+      logInfo(s"Call BlockManager Master to remove executor $executorId")
+      sc.env.blockManager.master.removeExecutorAsync(executorId)
+    }
   }
 
   private def logExecutorLoss(
