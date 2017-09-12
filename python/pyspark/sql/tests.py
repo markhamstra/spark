@@ -188,6 +188,10 @@ class DataTypeTests(unittest.TestCase):
         row = Row()
         self.assertEqual(len(row), 0)
 
+    def test_struct_field_type_name(self):
+        struct_field = StructField("a", IntegerType())
+        self.assertRaises(TypeError, struct_field.typeName)
+
 
 class SQLTests(ReusedPySparkTestCase):
 
@@ -2252,8 +2256,12 @@ class SQLTests2(ReusedPySparkTestCase):
         self.sc.stop()
         sc = SparkContext('local[4]', self.sc.appName)
         spark = SparkSession.builder.getOrCreate()
-        df = spark.createDataFrame([(1, 2)], ["c", "c"])
-        df.collect()
+        try:
+            df = spark.createDataFrame([(1, 2)], ["c", "c"])
+            df.collect()
+        finally:
+            spark.stop()
+            sc.stop()
 
 
 class UDFInitializationTests(unittest.TestCase):
