@@ -229,8 +229,8 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
   }
 
   private[hive] def selectParquetLocationDirectories(
-                                                      tableName: String,
-                                                      locationOpt: Option[Path]): Seq[Path] = {
+      tableName: String,
+      locationOpt: Option[Path]): Seq[Path] = {
     val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
     val paths: Option[Seq[Path]] = for {
       selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
