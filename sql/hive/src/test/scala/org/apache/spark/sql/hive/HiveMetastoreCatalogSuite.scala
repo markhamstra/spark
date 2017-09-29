@@ -208,9 +208,9 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
     }
     spark.sharedState.externalCatalog.setHadoopFileSelector(new HadoopFileSelector() {
       override def selectFiles(
-                                sometable: String,
-                                fs: FileSystem,
-                                somewhere: Path): Option[Seq[Path]] = {
+          sometable: String,
+          fs: FileSystem,
+          somewhere: Path): Option[Seq[Path]] = {
         Some(Seq(new Path(fullpath(somewhere.toString, sometable))))
       }
     })
@@ -240,9 +240,9 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
   test("With Selector selecting None") {
     spark.sharedState.externalCatalog.setHadoopFileSelector(new HadoopFileSelector() {
       override def selectFiles(
-                                tableName: String,
-                                fs: FileSystem,
-                                basePath: Path): Option[Seq[Path]] = None
+          tableName: String,
+          fs: FileSystem,
+          basePath: Path): Option[Seq[Path]] = None
     })
 
     // none selected
