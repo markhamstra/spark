@@ -613,11 +613,11 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
   }
 
   /**
-    * Log a warning for when a over size block is detected.
-    *
-    * @param blockId ID of the block we are trying to unroll.
-    * @param finalVectorSize Final size of the vector when the block size limit is reached.
-    */
+   * Log a warning for when a over size block is detected.
+   *
+   * @param blockId ID of the block we are trying to unroll.
+   * @param finalVectorSize Final size of the vector when the block size limit is reached.
+   */
   private def logBlockSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
     logWarning(
       s"Block size limit reached: $blockId! " +
