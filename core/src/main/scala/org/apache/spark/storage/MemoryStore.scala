@@ -179,7 +179,10 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
         val res = putArray(blockId, arrayValues, level, returnValues)
         droppedBlocks ++= res.droppedBlocks
         PutResult(res.size, res.data, droppedBlocks)
-      case Right(iteratorValues) =>
+      case Right((iteratorValues, false)) =>
+        // big block detected when unrolling
+        PutResult(0, Left(iteratorValues), droppedBlocks)
+      case Right((iteratorValues, true)) =>
         // Not enough space to unroll this block; drop to disk if applicable
         if (level.useDisk && allowPersistToDisk) {
           logWarning(s"Persisting block $blockId to disk instead.")
@@ -251,12 +254,19 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
    *
    * This method returns either an array with the contents of the entire block or an iterator
    * containing the values of the block (if the array would have exceeded available memory).
+   *
+   * SPY-1394: CSD modified this API in the following way:
+   * 1. It returns a tuple (iterator, boolean) as the Right prt of the result Either.
+   * 2. (iterator, false) means the block is too big for caching, the caller should not try to
+   *    drop the block to disk
+   * 3. (iterator, true) means there is not enough free memory to accommodate
+   *    the entirety of a single block; the caller can try to drop the block to disk.
    */
   def unrollSafely(
       blockId: BlockId,
       values: Iterator[Any],
       droppedBlocks: ArrayBuffer[(BlockId, BlockStatus)])
-    : Either[Array[Any], Iterator[Any]] = {
+    : Either[Array[Any], (Iterator[Any], Boolean)] = {
 
     // Number of elements unrolled so far
     var elementsUnrolled = 0
@@ -302,11 +312,12 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
     val ccbst = new CsdCacheBlockSizeTracker(csdCacheBlockSizeLimit)
     // Unroll this block safely, checking whether we have exceeded our threshold periodically
     try {
+      var currentSize = 0L
       while (values.hasNext && keepUnrolling && ccbst.shouldCache) {
         vector += values.next()
         if (elementsUnrolled % memoryCheckPeriod == 0) {
           // If our vector's size has exceeded the threshold, request more memory
-          val currentSize = vector.estimateSize()
+          currentSize = vector.estimateSize()
           if (ccbst.shouldTurnOffCache(currentSize)) {
             ccbst.turnOffCache()
           } else if (currentSize >= memoryThreshold) {
@@ -329,12 +340,13 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
         Left(vector.toArray)
       } else {
         if (!ccbst.shouldCache) {
-          logBlockSizeLimitMessage(blockId, vector.estimateSize())
-        } else if (!keepUnrolling) {
+          logBlockCacheSizeLimitMessage(blockId, currentSize)
+          Right((vector.iterator ++ values), false)
+        } else {
           // We ran out of space while unrolling the values for this block
-          logUnrollFailureMessage(blockId, vector.estimateSize())
+          logUnrollFailureMessage(blockId, currentSize)
+          Right((vector.iterator ++ values), true)
         }
-        Right(vector.iterator ++ values)
       }
 
     } finally {
@@ -613,14 +625,14 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
   }
 
   /**
-   * Log a warning for when a over size block is detected.
+   * Log a warning for when a over size block for caching is detected.
    *
    * @param blockId ID of the block we are trying to unroll.
    * @param finalVectorSize Final size of the vector when the block size limit is reached.
    */
-  private def logBlockSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
+  private def logBlockCacheSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
     logWarning(
-      s"Block size limit reached: $blockId! " +
+      s"Block cache size limit reached: $blockId! " +
         s"(computed ${Utils.bytesToString(finalVectorSize)} so far)"
     )
     logMemoryUsage()
