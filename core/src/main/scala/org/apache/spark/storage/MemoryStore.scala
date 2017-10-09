@@ -256,9 +256,9 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
    * containing the values of the block (if the array would have exceeded available memory).
    *
    * SPY-1394: CSD modified this API in the following way:
-   * 1. It returns a tuple (iterator, boolean) as the Right prt of the result Either.
-   * 2. (iterator, false) means the block is too big for caching, the caller should not try to
-   *    drop the block to disk
+   * 1. It returns a tuple (iterator, boolean) as the Right part of the result Either.
+   * 2. (iterator, false) means the block is too big for caching (even on disk, according to CSD):
+   *    the caller should NOT try to drop the block to disk.
    * 3. (iterator, true) means there is not enough free memory to accommodate
    *    the entirety of a single block; the caller can try to drop the block to disk.
    */
@@ -296,16 +296,16 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
     }
 
     class CsdCacheBlockSizeTracker (csdCacheBlockSizeLimit: Long) {
-      var blokSizedLimitReached = false
+      var blockSizedLimitReached = false
       def shouldCache: Boolean = {
-        (csdCacheBlockSizeLimit <= 0 || !blokSizedLimitReached)
+        (csdCacheBlockSizeLimit <= 0 || !blockSizedLimitReached)
       }
       def shouldTurnOffCache(size: Long): Boolean = {
-        csdCacheBlockSizeLimit > 0 && !blokSizedLimitReached && size > csdCacheBlockSizeLimit
+        csdCacheBlockSizeLimit > 0 && !blockSizedLimitReached && size > csdCacheBlockSizeLimit
       }
 
       def turnOffCache(): Unit = {
-        blokSizedLimitReached = true
+        blockSizedLimitReached = true
       }
     }
 
