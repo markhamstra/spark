@@ -1147,12 +1147,16 @@ class BlockManagerSuite extends SparkFunSuite with Matchers with BeforeAndAfterE
   private def verifyUnroll(
       expected: Iterator[Any],
       result: Either[Array[Any], (Iterator[Any], Boolean)],
-      shouldBeArray: Boolean): Unit = {
+      shouldBeArray: Boolean,
+      shouldTryDroppingToDisk: Boolean = true
+  ): Unit = {
     val actual: Iterator[Any] = result match {
       case Left(arr: Array[Any]) =>
         assert(shouldBeArray, "expected iterator from unroll!")
         arr.iterator
-      case Right((it: Iterator[Any], shouldCache: Boolean)) =>
+      case Right((it: Iterator[Any], withinBlockSize: Boolean)) =>
+        assert(shouldTryDroppingToDisk == withinBlockSize,
+          s"withinBlockSize should be $shouldTryDroppingToDisk")
         assert(!shouldBeArray, "expected array from unroll!")
         it
       case _ =>
@@ -1400,5 +1404,70 @@ class BlockManagerSuite extends SparkFunSuite with Matchers with BeforeAndAfterE
       }
     }
   }
+  /**
+    * the tests below are covering [[org.apache.spark.storage.MemoryStore.unrollSafely]]
+    * for CSD's cache block size policy
+    */
+  test("SPY-1394: safely unroll blocks") {
+    conf.set("spark.storage.MemoryStore.csdCacheBlockSizeLimit", "4800")
+    store = makeBlockManager(24000)
+    val smallList = List.fill(40)(new Array[Byte](100))
+    val bigList = List.fill(40)(new Array[Byte](120))
+    val memoryStore = store.memoryStore
+    val droppedBlocks = new ArrayBuffer[(BlockId, BlockStatus)]
+    assert(memoryStore.currentUnrollMemoryForThisTask === 0)
+
+    // Unroll with all the space in the world. This should succeed and return an array.
+    var unrollResult = memoryStore.unrollSafely("unroll", smallList.iterator, droppedBlocks)
+    verifyUnroll(smallList.iterator, unrollResult, shouldBeArray = true)
+    assert(memoryStore.currentUnrollMemoryForThisTask === 0)
+    memoryStore.releasePendingUnrollMemoryForThisTask()
+
+    // Unroll huge block exceeding spark.storage.MemoryStore.csdCacheBlockSizeLimit
+    // unrollSafely returns an iterator.
+    unrollResult = memoryStore.unrollSafely("unroll", bigList.iterator, droppedBlocks)
+    verifyUnroll(bigList.iterator, unrollResult, shouldBeArray = false, shouldTryDroppingToDisk = false)
+    assert(memoryStore.currentUnrollMemoryForThisTask > 0) // we returned an iterator
+    assert(droppedBlocks.size === 0)
+    droppedBlocks.clear()
+  }
+
+  test("SPY-1394: safely unroll blocks through putIterator") {
+    conf.set("spark.storage.MemoryStore.csdCacheBlockSizeLimit", "4800")
+    store = makeBlockManager(24000)
+    val memAndDisk = StorageLevel.MEMORY_AND_DISK
+    val memoryStore = store.memoryStore
+    val diskStore = store.diskStore
+    val smallList = List.fill(40)(new Array[Byte](100))
+    val bigList = List.fill(40)(new Array[Byte](120))
+    def smallIterator: Iterator[Any] = smallList.iterator.asInstanceOf[Iterator[Any]]
+
+    def bigIterator: Iterator[Any] = bigList.iterator.asInstanceOf[Iterator[Any]]
+
+    assert(memoryStore.currentUnrollMemoryForThisTask === 0)
+
+    // Unroll with plenty of space. This should succeed and cache both blocks.
+    val result1 = memoryStore.putIterator("b1", smallIterator, memAndDisk, returnValues = true)
+    val result2 = memoryStore.putIterator("b2", smallIterator, memAndDisk, returnValues = true)
+    assert(memoryStore.contains("b1"))
+    assert(memoryStore.contains("b2"))
+    assert(!diskStore.contains("b1"))
+    assert(!diskStore.contains("b2"))
+    assert(result1.size > 0) // unroll was successful
+    assert(result2.size > 0)
+    assert(result1.data.isLeft) // unroll did not drop this block to disk
+    assert(result2.data.isLeft)
+    assert(memoryStore.currentUnrollMemoryForThisTask === 0)
+
+    // Unroll huge block exceeding spark.storage.MemoryStore.csdCacheBlockSizeLimit
+    // unrollSafely returns an iterator.
+    val result4 = memoryStore.putIterator("b4", bigIterator, memAndDisk, returnValues = true)
+    assert(!memoryStore.contains("b4"))
+    assert(!diskStore.contains("b4"))
+    assert(result4.size === 0) // unroll was unsuccessful
+    assert(result4.data.isLeft)
+    assert(memoryStore.currentUnrollMemoryForThisTask > 0) // we returned an iterator
+  }
+
 
 }

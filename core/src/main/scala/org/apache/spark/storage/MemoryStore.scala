@@ -64,6 +64,7 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
     conf.getLong("spark.storage.MemoryStore.csdCacheBlockSizeLimit", Integer.MAX_VALUE.toLong)
   assert(csdCacheBlockSizeLimit <= Integer.MAX_VALUE)
 
+
   /** Total amount of memory available for storage, in bytes. */
   private def maxMemory: Long = memoryManager.maxStorageMemory
 
@@ -185,8 +186,7 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
         // Not enough space to unroll this block; drop to disk if applicable
         if (level.useDisk && allowPersistToDisk) {
           logWarning(s"Persisting block $blockId to disk instead.")
-          val res =
-            blockManager.diskStore.putIterator(blockId, iteratorValues, level, returnValues)
+          val res = blockManager.diskStore.putIterator(blockId, iteratorValues, level, returnValues)
           PutResult(res.size, res.data, droppedBlocks)
         } else {
           PutResult(0, Left(iteratorValues), droppedBlocks)
@@ -244,43 +244,6 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
   }
 
   /**
-   * This api is used by CSD as a post process of [[unrollSafely]] to detect
-   * large size partitions under shortage of unroll memory.
-   * This api continues fetching into user memory space until we "see" total object size
-   * exceeds csdCacheBlockSizeLimit or when inputValues exhausted.
-   * In practice, we need to make sure we have at least csdCacheBlockSizeLimit
-   * amount of memory space available from user space per thread, for worst case.
-   * We can also tune csdCacheBlockSizeLimit down according to our need.
-   */
-  private[this] def fetchUntilCsdBlockSizeLimit[T](
-      blockId: BlockId,
-      inputValues: Iterator[T],
-      valuesSeen: SizeTrackingVector[Any]): Boolean = {
-    // if switch is off, do nothing
-    if (csdCacheBlockSizeLimit <= 0) {
-      true
-    } else {
-      val start = System.currentTimeMillis
-      var currentEstimatedSize = valuesSeen.estimateSize()
-      try {
-        var elementsExamined = 0L
-        val memoryCheckPeriod = 16
-        while (inputValues.hasNext && currentEstimatedSize <= csdCacheBlockSizeLimit) {
-          valuesSeen += inputValues.next()
-          elementsExamined += 1
-          if (elementsExamined % memoryCheckPeriod == 0) {
-            currentEstimatedSize = valuesSeen.estimateSize()
-          }
-        }
-        (currentEstimatedSize <= csdCacheBlockSizeLimit)
-      } finally {
-        logWarning(s"fetchUntilCsdBlockSizeLimit($blockId) duration: " +
-          s"${Utils.msDurationToString(System.currentTimeMillis - start)}")
-      }
-    }
-  }
-
-  /**
    * Unroll the given block in memory safely.
    *
    * The safety of this operation refers to avoiding potential OOM exceptions caused by
@@ -293,11 +256,11 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
    * containing the values of the block (if the array would have exceeded available memory).
    *
    * SPY-1394: CSD modified this API in the following way:
-   * 1. It returns a tuple (iterator, boolean), when short of memory.
-   *    The boolean is an indicator on whether caller should cache to disk, based
-   *    on detection of over-sized block.
-   * 2. When over-sized block is detected, terminate the unroll and tell the caller to not
-   *    cache at all.
+   * 1. It returns a tuple (iterator, boolean) as the Right part of the result Either.
+   * 2. (iterator, false) means the block is too big for caching (even on disk, according to CSD):
+   *    the caller should NOT try to drop the block to disk.
+   * 3. (iterator, true) means there is not enough free memory to accommodate
+   *    the entirety of a single block; the caller can try to drop the block to disk.
    */
   def unrollSafely(
       blockId: BlockId,
@@ -332,21 +295,32 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
       pendingMemoryReserved += initialMemoryThreshold
     }
 
+    class CsdCacheBlockSizeTracker (csdCacheBlockSizeLimit: Long) {
+      var blockSizedLimitReached = false
+      def shouldCache: Boolean = {
+        (csdCacheBlockSizeLimit <= 0 || !blockSizedLimitReached)
+      }
+      def shouldTurnOffCache(size: Long): Boolean = {
+        csdCacheBlockSizeLimit > 0 && !blockSizedLimitReached && size > csdCacheBlockSizeLimit
+      }
+
+      def turnOffCache(): Unit = {
+        blockSizedLimitReached = true
+      }
+    }
+
+    val ccbst = new CsdCacheBlockSizeTracker(csdCacheBlockSizeLimit)
     // Unroll this block safely, checking whether we have exceeded our threshold periodically
     try {
       var currentSize = 0L
-      var shouldCache = true
-      while (values.hasNext && keepUnrolling && (csdCacheBlockSizeLimit <= 0 || shouldCache)) {
+      while (values.hasNext && keepUnrolling && ccbst.shouldCache) {
         vector += values.next()
         if (elementsUnrolled % memoryCheckPeriod == 0) {
           // If our vector's size has exceeded the threshold, request more memory
           currentSize = vector.estimateSize()
-
-          if (csdCacheBlockSizeLimit > 0 && shouldCache && currentSize > csdCacheBlockSizeLimit) {
-            shouldCache = false
-          }
-
-          if (currentSize >= memoryThreshold) {
+          if (ccbst.shouldTurnOffCache(currentSize)) {
+            ccbst.turnOffCache()
+          } else if (currentSize >= memoryThreshold) {
             val amountToRequest = (currentSize * memoryGrowthFactor - memoryThreshold).toLong
             keepUnrolling = reserveUnrollMemoryForThisTask(
               blockId, amountToRequest, droppedBlocks)
@@ -360,35 +334,25 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
         elementsUnrolled += 1
       }
 
-      if (keepUnrolling && shouldCache) {
+      if (keepUnrolling && ccbst.shouldCache) {
         // We successfully unrolled the entirety of this block
+        // and the block size is within csdCacheBlockSizeLimit
         Left(vector.toArray)
       } else {
-        if (!shouldCache) {
-          logBlockSizeLimitMessage(blockId, currentSize)
-          Right(vector.iterator ++ values, shouldCache)
+        if (!ccbst.shouldCache) {
+          logBlockCacheSizeLimitMessage(blockId, currentSize)
+          Right((vector.iterator ++ values), false)
         } else {
-          // When we ran out of unroll memory from spark's storage space,
-          // a true value of shouldCache be false positive because we have
-          // not seen enough of the values.
-          // Try continue the fetching using memory from user space (assuming that
-          // enough memory is available). see [[fetchUntilCsdBlockSizeLimit]]
-          shouldCache = fetchUntilCsdBlockSizeLimit(blockId, values, vector)
-          if (!shouldCache) {
-            logBlockSizeLimitMessage(blockId, vector.estimateSize())
-          } else {
-            // spark's original logging message indicating insufficient Unroll memory
-            // and caller will consider drop it to disk if applicable.
-            logUnrollFailureMessage(blockId, vector.estimateSize())
-          }
-          Right(vector.iterator ++ values, shouldCache)
+          // We ran out of space while unrolling the values for this block
+          logUnrollFailureMessage(blockId, currentSize)
+          Right((vector.iterator ++ values), true)
         }
       }
 
     } finally {
       // If we return an array, the values returned here will be cached in `tryToPut` later.
       // In this case, we should release the memory only after we cache the block there.
-      if (keepUnrolling) {
+      if (keepUnrolling && ccbst.shouldCache) {
         val taskAttemptId = currentTaskAttemptId()
         memoryManager.synchronized {
           // Since we continue to hold onto the array until we actually cache it, we cannot
@@ -661,14 +625,14 @@ private[spark] class MemoryStore(blockManager: BlockManager, memoryManager: Memo
   }
 
   /**
-   * Log a warning for when a over size block is detected.
+   * Log a warning for when a over size block for caching is detected.
    *
    * @param blockId ID of the block we are trying to unroll.
    * @param finalVectorSize Final size of the vector when the block size limit is reached.
    */
-  private def logBlockSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
+  private def logBlockCacheSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
     logWarning(
-      s"Block size limit reached: $blockId! " +
+      s"Block cache size limit reached: $blockId! " +
         s"(computed ${Utils.bytesToString(finalVectorSize)} so far)"
     )
     logMemoryUsage()
