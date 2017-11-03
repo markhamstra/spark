@@ -191,20 +191,20 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
         }
       withTableCreationLock(tableIdentifier, {
         // SPY-1453: disable the cache completely until we migrated to partitioning
-        val (dataSchema, updatedTable) = inferIfNeeded(relation, options, fileFormat)
+        val updatedTable = inferIfNeeded(relation, options, fileFormat)
         val created =
           LogicalRelation(
             DataSource(
               sparkSession = sparkSession,
               paths = paths.map(_.toString),
-              userSpecifiedSchema = Option(dataSchema),
+              userSpecifiedSchema = Option(updatedTable.dataSchema),
               // We don't support hive bucketed tables, only ones we write out.
               bucketSpec = None,
               options = options,
               className = fileType).resolveRelation(),
             table = updatedTable)
-      }
-      created
+        created
+      })
     }
     // The inferred schema may have different field names as the table schema, we should respect
     // it, but also respect the exprId in table relation output.
