@@ -385,7 +385,7 @@ class ParquetMetastoreSuite extends ParquetPartitioningTest {
     }
   }
 
-  ignore("SPARK-7749: non-partitioned metastore Parquet table lookup should use cached relation") {
+  test("SPARK-7749: non-partitioned metastore Parquet table lookup should use cached relation") {
     withTable("nonPartitioned") {
       sql(
         """
@@ -454,7 +454,7 @@ class ParquetMetastoreSuite extends ParquetPartitioningTest {
       .getCachedDataSourceTable(table)
   }
 
-  ignore("Caching converted data source Parquet Relations") {
+  test("Caching converted data source Parquet Relations") {
     def checkCached(tableIdentifier: TableIdentifier): Unit = {
       // Converted test_parquet should be cached.
       getCachedDataSourceTable(tableIdentifier) match {

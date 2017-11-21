@@ -16,7 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.expressions.{AttributeMap, AttributeReference}
@@ -70,6 +69,12 @@ case class LogicalRelation(
     case _ =>  // Do nothing.
   }
 
+  /**
+   * SPY-1453
+   * csd's version range information from identifier has to be
+   * present in simpleString for caching that requires
+   * logical plan matching to work.
+   */
   override def simpleString: String = {
     s"Relation[${Utils.truncatedString(output, ",")}] $relation " +
       s"${catalogTable.map(_.identifier.identifier).getOrElse("")}"
