@@ -17,8 +17,9 @@
 
 package org.apache.spark.sql.execution.streaming.state
 
-import java.io.{File, IOException}
+import java.io.File
 import java.net.URI
+import java.util.UUID
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -26,7 +27,7 @@ import scala.util.Random
 
 import org.apache.commons.io.FileUtils
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileStatus, Path, RawLocalFileSystem}
+import org.apache.hadoop.fs.{Path, RawLocalFileSystem}
 import org.scalatest.{BeforeAndAfter, PrivateMethodTester}
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.time.SpanSugar._
@@ -360,7 +361,7 @@ class StateStoreSuite extends SparkFunSuite with BeforeAndAfter with PrivateMeth
 
   test("StateStore.get") {
     quietly {
-      val dir = Utils.createDirectory(tempDir, Random.nextString(5)).toString
+      val dir = Utils.createDirectory(tempDir, UUID.randomUUID.toString).toString
       val storeId = StateStoreId(dir, 0, 0)
       val storeConf = StateStoreConf.empty
       val hadoopConf = new Configuration()
@@ -407,7 +408,7 @@ class StateStoreSuite extends SparkFunSuite with BeforeAndAfter with PrivateMeth
       // fails to talk to the StateStoreCoordinator and unloads all the StateStores
       .set("spark.rpc.numRetries", "1")
     val opId = 0
-    val dir = Utils.createDirectory(tempDir, Random.nextString(5)).toString
+    val dir = Utils.createDirectory(tempDir, UUID.randomUUID.toString).toString
     val storeId = StateStoreId(dir, opId, 0)
     val sqlConf = new SQLConf()
     sqlConf.setConf(SQLConf.MIN_BATCHES_TO_RETAIN, 2)
@@ -495,7 +496,8 @@ class StateStoreSuite extends SparkFunSuite with BeforeAndAfter with PrivateMeth
 
   test("SPARK-18342: commit fails when rename fails") {
     import RenameReturnsFalseFileSystem._
-    val dir = scheme + "://" + Utils.createDirectory(tempDir, Random.nextString(5)).toURI.getPath
+    val dir =
+      scheme + "://" + Utils.createDirectory(tempDir, UUID.randomUUID.toString).toURI.getPath
     val conf = new Configuration()
     conf.set(s"fs.$scheme.impl", classOf[RenameReturnsFalseFileSystem].getName)
     val provider = newStoreProvider(dir = dir, hadoopConf = conf)
@@ -506,7 +508,7 @@ class StateStoreSuite extends SparkFunSuite with BeforeAndAfter with PrivateMeth
   }
 
   test("SPARK-18416: do not create temp delta file until the store is updated") {
-    val dir = Utils.createDirectory(tempDir, Random.nextString(5)).toString
+    val dir = Utils.createDirectory(tempDir, UUID.randomUUID.toString).toString
     val storeId = StateStoreId(dir, 0, 0)
     val storeConf = StateStoreConf.empty
     val hadoopConf = new Configuration()
@@ -638,7 +640,7 @@ class StateStoreSuite extends SparkFunSuite with BeforeAndAfter with PrivateMeth
       opId: Long = Random.nextLong,
       partition: Int = 0,
       minDeltasForSnapshot: Int = SQLConf.STATE_STORE_MIN_DELTAS_FOR_SNAPSHOT.defaultValue.get,
-      dir: String = Utils.createDirectory(tempDir, Random.nextString(5)).toString,
+      dir: String = Utils.createDirectory(tempDir, UUID.randomUUID.toString).toString,
       hadoopConf: Configuration = new Configuration()
     ): HDFSBackedStateStoreProvider = {
     val sqlConf = new SQLConf()
