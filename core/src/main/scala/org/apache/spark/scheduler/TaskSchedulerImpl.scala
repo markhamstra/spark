@@ -462,14 +462,14 @@ private[spark] class TaskSchedulerImpl(
   }
 
   override def executorLost(executorId: String, reason: ExecutorLossReason): Unit = {
-    var failedExecutor: Option[String] = None
+    var dagSchedulerShouldRemoveExecutor: Boolean = false
 
     synchronized {
       if (executorIdToRunningTaskIds.contains(executorId)) {
         val hostPort = executorIdToHost(executorId)
         logExecutorLoss(executorId, hostPort, reason)
         removeExecutor(executorId, reason)
-        failedExecutor = Some(executorId)
+        dagSchedulerShouldRemoveExecutor = true
       } else {
         executorIdToHost.get(executorId) match {
           case Some(hostPort) =>
@@ -489,14 +489,14 @@ private[spark] class TaskSchedulerImpl(
         }
       }
     }
-    // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock
-    // When an executor is never used, we should ask dag scheduler to clean it up so that it can be
-    // removed from BlockManager
-    if (failedExecutor.isDefined) {
+    // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock.
+    if (dagSchedulerShouldRemoveExecutor) {
       dagScheduler.executorLost(executorId)
       backend.reviveOffers()
     } else {
-      logInfo(s"Call BlockManager Master to remove executor $executorId")
+      // When an executor is never used, we should ask BlockManagerMaster to remove this executor
+      // from its accounting.
+      logInfo(s"Call BlockManagerMaster to remove executor $executorId")
       sc.env.blockManager.master.removeExecutorAsync(executorId)
     }
   }
