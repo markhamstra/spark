@@ -12,9 +12,14 @@ pipeline{
         checkout scm
       }
     }
-      stage('PR Builder'){
+    stage('Clean Install'){
       steps{
-        sh "build/mvn install"
+        sh "build/mvn -Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests clean install"
+      }
+    }
+    stage('Run tests'){
+      steps{
+        sh "build/mvn -Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr install"
       }
     }
   }
