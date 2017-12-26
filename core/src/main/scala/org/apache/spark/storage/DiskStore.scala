@@ -108,24 +108,30 @@ private[spark] class DiskStore(
         new EncryptedBlockData(file, blockSize, conf, key)
 
       case _ =>
-        val channel = new FileInputStream(file).getChannel()
-        if (blockSize < minMemoryMapBytes) {
-          // For small files, directly read rather than memory map.
-          Utils.tryWithSafeFinally {
-            val buf = ByteBuffer.allocate(blockSize.toInt)
-            JavaUtils.readFully(channel, buf)
-            buf.flip()
-            new ByteBufferBlockData(new ChunkedByteBuffer(buf), true)
-          } {
-            channel.close()
+        try {
+          val channel = new FileInputStream(file).getChannel()
+          if (blockSize < minMemoryMapBytes) {
+            // For small files, directly read rather than memory map.
+            Utils.tryWithSafeFinally {
+              val buf = ByteBuffer.allocate(blockSize.toInt)
+              JavaUtils.readFully(channel, buf)
+              buf.flip()
+              new ByteBufferBlockData(new ChunkedByteBuffer(buf), true)
+            } {
+              channel.close()
+            }
+          } else {
+            Utils.tryWithSafeFinally {
+              new ByteBufferBlockData(
+                new ChunkedByteBuffer(channel.map(MapMode.READ_ONLY, 0, file.length)), true)
+            } {
+              channel.close()
+            }
           }
-        } else {
-          Utils.tryWithSafeFinally {
-            new ByteBufferBlockData(
-              new ChunkedByteBuffer(channel.map(MapMode.READ_ONLY, 0, file.length)), true)
-          } {
-            channel.close()
-          }
+        } catch {
+          case t: Throwable =>
+            logError(s"diskStore.getBytes($blockId) failed, size(${blockSize}): ${t.getMessage}")
+            throw t
         }
     }
   }
