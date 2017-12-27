@@ -45,7 +45,7 @@ def set_properties(){
 def prBuilder(){
   def mvnArgs="-Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr"
   stage('PR Build'){
-    sh "build/mvn ${mvnArgs} -DskipTests clean install"
+    sh "build/mvn ${mvnArgs}  -DskipTests clean install"
   }
   stage('PR Test'){
     sh "build/mvn ${mvnArgs} install"
@@ -58,10 +58,10 @@ def releaseBuilder(){
     sh "build/mvn ${mvnArgs} release:clean"
   }
   stage('Release Prepare'){
-    sh "build/mvn ${mvnArgs} release:prepare"
+    sh "build/mvn --batch-mode ${mvnArgs} -Darguments=\"${mvnArgs}\" release:prepare"
   }
   stage('Release Perform'){
-    sh "build/mvn ${mvnArgs} release:perform"
+    sh "build/mvn --batch-mode ${mvnArgs} -Darguments=\"${mvnArgs}\" release:perform"
   }
   stage('Stage Binaries'){
     sh """
