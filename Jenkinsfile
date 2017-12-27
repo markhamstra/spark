@@ -55,6 +55,17 @@ def prBuilder(){
 def releaseBuilder(){
   def mvnArgs="-Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true"
   stage('Release Clean'){
+    // We need to check out the branch as a "symbolic ref" (i.e. not as an SHA1), otherwise
+    // Maven Release plugin won't be able to push to the branch.
+    def branch_name=env.JOB_NAME.split('/')[-1]
+    sh """
+    git reset --hard HEAD
+    git checkout ${branch_name}
+    git fetch origin
+    git reset --hard origin/${branch_name}
+    git clean -dfx
+    """
+
     sh "build/mvn ${mvnArgs} release:clean"
   }
   stage('Release Prepare'){
