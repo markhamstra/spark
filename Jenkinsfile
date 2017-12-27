@@ -12,14 +12,10 @@ pipeline{
         checkout scm
       }
     }
-    stage('Clean Install'){
+    stage('Building'){
       steps{
-        sh "build/mvn -Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests clean install"
-      }
-    }
-    stage('Run tests'){
-      steps{
-        sh "build/mvn -Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr install"
+        // Determine what kind of build we are building
+        csdBuild env.JOB_NAME
       }
     }
   }
@@ -44,4 +40,43 @@ def set_properties(){
     issueCommentTrigger('.*jttp.*')
     ])
   ])
+}
+
+def prBuilder(){
+  def mvnArgs="-Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr"
+  stage('PR Build'){
+    sh "build/mvn ${mvnArgs} -DskipTests clean install"
+  }
+  stage('PR Test'){
+    sh "build/mvn ${mvnArgs} install"
+  }
+}
+
+def releaseBuilder(){
+  def mvnArgs="-Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true"
+  stage('Release Clean'){
+    sh "build/mvn ${mvnArgs} release:clean"
+  }
+  stage('Release Prepare'){
+    sh "build/mvn ${mvnArgs} release:prepare"
+  }
+  stage('Release Perform'){
+    sh "build/mvn ${mvnArgs} release:perform"
+  }
+  stage('Stage Binaries'){
+    sh """
+    scp target/checkout/assembly/target/spark*_all.deb \
+      mash@apt.clearstorydatainc.com:/var/repos/apt/private/dists/precise/misc/binary-all
+    """
+  }
+}
+def csdBuild(val) {
+    switch (val) {
+        case ~/.*PR.*/:
+            prBuilder()
+            break
+        default:
+            releaseBuilder()
+            break
+    }
 }
