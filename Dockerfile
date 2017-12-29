@@ -2,7 +2,7 @@
 
 # https://spark.apache.org/docs/latest/building-spark.html#building-a-runnable-distribution
 # export MAVEN_OPTS="-Xmx2g -XX:ReservedCodeCacheSize=512m"
-# dev/make-distribution.sh --name custom-spark -Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true package
+# dev/make-distribution.sh --name custom-spark -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkinesis-asl -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true package
 
 # To build and push the container, run:
 # docker build -t spark:csd-X.Y.Z .
