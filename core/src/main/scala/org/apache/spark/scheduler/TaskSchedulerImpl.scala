@@ -462,14 +462,14 @@ private[spark] class TaskSchedulerImpl(
   }
 
   override def executorLost(executorId: String, reason: ExecutorLossReason): Unit = {
-    var failedExecutor: Option[String] = None
+    var dagSchedulerShouldRemoveExecutor: Boolean = false
 
     synchronized {
       if (executorIdToRunningTaskIds.contains(executorId)) {
         val hostPort = executorIdToHost(executorId)
         logExecutorLoss(executorId, hostPort, reason)
         removeExecutor(executorId, reason)
-        failedExecutor = Some(executorId)
+        dagSchedulerShouldRemoveExecutor = true
       } else {
         executorIdToHost.get(executorId) match {
           case Some(hostPort) =>
@@ -484,14 +484,20 @@ private[spark] class TaskSchedulerImpl(
             // one may be triggered by a dropped connection from the slave while another may be a
             // report of executor termination from Mesos. We produce log messages for both so we
             // eventually report the termination reason.
-            logError(s"Lost an executor $executorId (already removed): $reason")
+            // Another cause of this could be that this executor is never launched with any task
+            logError(s"Lost an executor $executorId (already removed or never used): $reason")
         }
       }
     }
-    // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock
-    if (failedExecutor.isDefined) {
-      dagScheduler.executorLost(failedExecutor.get)
+    // Call dagScheduler.executorLost without holding the lock on this to prevent deadlock.
+    if (dagSchedulerShouldRemoveExecutor) {
+      dagScheduler.executorLost(executorId)
       backend.reviveOffers()
+    } else {
+      // When an executor is never used, we should ask BlockManagerMaster to remove this executor
+      // from its accounting.
+      logInfo(s"Call BlockManagerMaster to remove executor $executorId")
+      sc.env.blockManager.master.removeExecutorAsync(executorId)
     }
   }
 
