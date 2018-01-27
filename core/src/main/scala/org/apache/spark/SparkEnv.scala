@@ -327,7 +327,7 @@ object SparkEnv extends Logging {
       if (useLegacyMemoryManager) {
         new StaticMemoryManager(conf, numUsableCores)
       } else {
-        UnifiedMemoryManager(conf, numUsableCores)
+        UnifiedMemoryManager(conf, numUsableCores, isDriver)
       }
 
     val blockManagerPort = if (isDriver) {
