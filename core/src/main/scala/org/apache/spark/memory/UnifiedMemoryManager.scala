@@ -195,8 +195,8 @@ object UnifiedMemoryManager {
   // the memory used for execution and storage will be (1024 - 300) * 0.6 = 434MB by default.
   private val RESERVED_SYSTEM_MEMORY_BYTES = 300 * 1024 * 1024
 
-  def apply(conf: SparkConf, numCores: Int): UnifiedMemoryManager = {
-    val maxMemory = getMaxMemory(conf)
+  def apply(conf: SparkConf, numCores: Int, isDriver: Boolean = false): UnifiedMemoryManager = {
+    val maxMemory = getMaxMemory(conf, isDriver)
     new UnifiedMemoryManager(
       conf,
       maxHeapMemory = maxMemory,
@@ -208,7 +208,7 @@ object UnifiedMemoryManager {
   /**
    * Return the total amount of memory shared between execution and storage, in bytes.
    */
-  private def getMaxMemory(conf: SparkConf): Long = {
+  private def getMaxMemory(conf: SparkConf, isDriver: Boolean): Long = {
     val systemMemory = conf.getLong("spark.testing.memory", Runtime.getRuntime.maxMemory)
     val reservedMemory = conf.getLong("spark.testing.reservedMemory",
       if (conf.contains("spark.testing")) 0 else RESERVED_SYSTEM_MEMORY_BYTES)
@@ -228,7 +228,12 @@ object UnifiedMemoryManager {
       }
     }
     val usableMemory = systemMemory - reservedMemory
-    val memoryFraction = conf.getDouble("spark.memory.fraction", 0.6)
+    val defaultMemoryFraction = conf.getDouble("spark.memory.fraction", 0.6)
+    val memoryFraction = if (isDriver) {
+      conf.getDouble("spark.driver.memory.fraction", defaultMemoryFraction)
+    } else {
+      defaultMemoryFraction
+    }
     (usableMemory * memoryFraction).toLong
   }
 }
