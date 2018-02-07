@@ -733,7 +733,6 @@ class UISeleniumSuite extends SparkFunSuite with WebBrowser with Matchers with B
 
       eventually(timeout(10 seconds), interval(50 milliseconds)) {
         goToUi(ui, s"/jobs/jobgroup/?id=${jobGroupId}")
-        println("here" + webDriver.getPageSource)
         find(id("pending")) should be (None)
         find(id("active")) should be (None)
         find(id("failed")) should be (None)
