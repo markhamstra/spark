@@ -738,9 +738,11 @@ class UISeleniumSuite extends SparkFunSuite with WebBrowser with Matchers with B
         find(id("active")) should be (None)
         find(id("failed")) should be (None)
         find(id("completed")).get.text should be ("Completed Jobs (1)")
-        findAll(cssSelector("tbody tr a")).foreach { link =>
-          println(link.text.toLowerCase)
-          link.text.toLowerCase should include ("count")
+        findAll(cssSelector("tbody tr")).foreach { row =>
+          val links = row.underlying.findElements(By.xpath(".//a"))
+          links.size should be (2)
+          links.get(0).getText().toLowerCase should include (jobGroupId)
+          links.get(1).getText().toLowerCase should include ("count")
         }
       }
     }
