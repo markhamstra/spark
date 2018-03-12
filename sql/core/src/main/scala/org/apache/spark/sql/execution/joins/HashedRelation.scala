@@ -282,9 +282,14 @@ private[joins] object UnsafeHashedRelation {
       key: Seq[Expression],
       sizeEstimate: Int,
       taskMemoryManager: TaskMemoryManager): HashedRelation = {
+    val sparkConf = new SparkConf()
+    // see SPY-1695
+    val pageSizeBytes = math.min(
+      sparkConf.getSizeAsBytes("spark.unsafe.csdHashedRelation.pageSize", "1m"),
+      Option(SparkEnv.get).map(_.memoryManager.pageSizeBytes)
+      .getOrElse(sparkConf.getSizeAsBytes("spark.buffer.pageSize", "16m"))
+    )
 
-    val pageSizeBytes = Option(SparkEnv.get).map(_.memoryManager.pageSizeBytes)
-      .getOrElse(new SparkConf().getSizeAsBytes("spark.buffer.pageSize", "16m"))
 
     val binaryMap = new BytesToBytesMap(
       taskMemoryManager,
