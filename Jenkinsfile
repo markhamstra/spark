@@ -67,6 +67,8 @@ def releaseBuilder(){
     """
 
     sh "build/mvn ${mvnArgs} release:clean"
+    pom = readMavenPom(file: 'pom.xml')
+    spark_version = pom.version.replace("-SNAPSHOT", "")
   }
   stage('Release Prepare'){
     sh "build/mvn --batch-mode ${mvnArgs} -Darguments=\"${mvnArgs}\" release:prepare"
@@ -78,6 +80,15 @@ def releaseBuilder(){
     sh """
     scp target/checkout/assembly/target/spark*_all.deb \
       mash@apt.clearstorydatainc.com:/var/repos/apt/private/dists/precise/misc/binary-all
+    """
+  }
+  stage('Release Docker Image'){
+    def dockerVersion = "csd-2.2.1-${spark_version.split('-')[-1]}"
+    sh """
+    dev/make-distribution.sh --name custom-spark -U ${mvnArgs} package
+    docker build -t spark:${dockerVersion} .
+    docker tag spark:${dockerVersion} 628897842239.dkr.ecr.us-west-2.amazonaws.com/spark:${dockerVersion}
+    docker push 628897842239.dkr.ecr.us-west-2.amazonaws.com/spark:${dockerVersion}
     """
   }
 }
