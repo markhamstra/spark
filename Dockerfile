@@ -75,7 +75,7 @@ RUN curl -sL --retry 3 \
   | gunzip \
   | tar -x -C /usr/ \
  && rm -rf $HADOOP_HOME/share/doc \
- && rm -rf `find $HADOOP_HOME -name jersey-*-1.9.jar`
+ && rm -f `find $HADOOP_HOME -name jersey-*-1.9.jar`
 
 RUN ln -nsf $HADOOP_HOME/ /usr/lib/hadoop
 
