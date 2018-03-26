@@ -100,11 +100,6 @@ private[spark] class MemoryStore(
   private val unrollMemoryThreshold: Long =
     conf.getLong("spark.storage.unrollMemoryThreshold", 1024 * 1024)
 
-  // csd flag controlling whether to apply Csd's caching block size policy
-  private val csdCacheBlockSizeLimit: Long =
-    conf.getLong("spark.storage.MemoryStore.csdCacheBlockSizeLimit", Integer.MAX_VALUE.toLong)
-  assert(csdCacheBlockSizeLimit <= Integer.MAX_VALUE)
-
   /** Total amount of memory available for storage, in bytes. */
   private def maxMemory: Long = {
     memoryManager.maxOnHeapStorageMemory + memoryManager.maxOffHeapStorageMemory
@@ -184,7 +179,7 @@ private[spark] class MemoryStore(
   private[storage] def putIteratorAsValues[T](
       blockId: BlockId,
       values: Iterator[T],
-      classTag: ClassTag[T]): Either[(PartiallyUnrolledIterator[T], Boolean), Long] = {
+      classTag: ClassTag[T]): Either[PartiallyUnrolledIterator[T], Long] = {
 
     require(!contains(blockId), s"Block $blockId is already present in the MemoryStore")
 
@@ -216,33 +211,13 @@ private[spark] class MemoryStore(
       unrollMemoryUsedByThisBlock += initialMemoryThreshold
     }
 
-    class CsdCacheBlockSizeTracker(csdCacheBlockSizeLimit: Long) {
-      var blockSizedLimitReached = false
-
-      def shouldCache: Boolean = {
-        csdCacheBlockSizeLimit <= 0 || !blockSizedLimitReached
-      }
-
-      def shouldTurnOffCache(size: Long): Boolean = {
-        csdCacheBlockSizeLimit > 0 && !blockSizedLimitReached && size > csdCacheBlockSizeLimit
-      }
-
-      def turnOffCache(): Unit = {
-        blockSizedLimitReached = true
-      }
-    }
-
-    val ccbst = new CsdCacheBlockSizeTracker(csdCacheBlockSizeLimit)
     // Unroll this block safely, checking whether we have exceeded our threshold periodically
-    var currentSize = 0L
-    while (values.hasNext && keepUnrolling && ccbst.shouldCache) {
+    while (values.hasNext && keepUnrolling) {
       vector += values.next()
       if (elementsUnrolled % memoryCheckPeriod == 0) {
         // If our vector's size has exceeded the threshold, request more memory
-        currentSize = vector.estimateSize()
-        if (ccbst.shouldTurnOffCache(currentSize)) {
-          ccbst.turnOffCache()
-        } else if (currentSize >= memoryThreshold) {
+        val currentSize = vector.estimateSize()
+        if (currentSize >= memoryThreshold) {
           val amountToRequest = (currentSize * memoryGrowthFactor - memoryThreshold).toLong
           keepUnrolling =
             reserveUnrollMemoryForThisTask(blockId, amountToRequest, MemoryMode.ON_HEAP)
@@ -256,9 +231,8 @@ private[spark] class MemoryStore(
       elementsUnrolled += 1
     }
 
-    if (keepUnrolling && ccbst.shouldCache) {
+    if (keepUnrolling) {
       // We successfully unrolled the entirety of this block
-      // and the block size is within csdCacheBlockSizeLimit
       val arrayValues = vector.toArray
       vector = null
       val entry =
@@ -301,35 +275,25 @@ private[spark] class MemoryStore(
       } else {
         assert(currentUnrollMemoryForThisTask >= unrollMemoryUsedByThisBlock,
           "released too much unroll memory")
-        Left(
-          (
-            new PartiallyUnrolledIterator(
-              this,
-              MemoryMode.ON_HEAP,
-              unrollMemoryUsedByThisBlock,
-              unrolled = arrayValues.toIterator,
-              rest = Iterator.empty),
-            true
-          )
-        )
+        Left(new PartiallyUnrolledIterator(
+          this,
+          MemoryMode.ON_HEAP,
+          unrollMemoryUsedByThisBlock,
+          unrolled = arrayValues.toIterator,
+          rest = Iterator.empty))
       }
     } else {
-      val iter = new PartiallyUnrolledIterator(
+      // We ran out of space while unrolling the values for this block
+      logUnrollFailureMessage(blockId, vector.estimateSize())
+      Left(new PartiallyUnrolledIterator(
         this,
         MemoryMode.ON_HEAP,
         unrollMemoryUsedByThisBlock,
         unrolled = vector.iterator,
-        rest = values)
-      // We ran out of space while unrolling the values for this block
-      if (!ccbst.shouldCache) {
-        logBlockCacheSizeLimitMessage(blockId, currentSize)
-        Left((iter, false))
-      } else {
-        logUnrollFailureMessage(blockId, vector.estimateSize())
-        Left((iter, true))
-      }
+        rest = values))
     }
   }
+
   /**
    * Attempt to put the given block in memory store as bytes.
    *
@@ -717,20 +681,6 @@ private[spark] class MemoryStore(
     logWarning(
       s"Not enough space to cache $blockId in memory! " +
       s"(computed ${Utils.bytesToString(finalVectorSize)} so far)"
-    )
-    logMemoryUsage()
-  }
-
-  /**
-   * Log a warning for when a over size block for caching is detected.
-   *
-   * @param blockId ID of the block we are trying to unroll.
-   * @param finalVectorSize Final size of the vector when the block size limit is reached.
-   */
-  private def logBlockCacheSizeLimitMessage(blockId: BlockId, finalVectorSize: Long): Unit = {
-    logWarning(
-      s"Block cache size limit reached: $blockId! " +
-        s"(computed ${Utils.bytesToString(finalVectorSize)} so far)"
     )
     logMemoryUsage()
   }

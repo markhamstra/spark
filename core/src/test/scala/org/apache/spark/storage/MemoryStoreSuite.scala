@@ -131,7 +131,7 @@ class MemoryStoreSuite
     def putIteratorAsValues[T](
         blockId: BlockId,
         iter: Iterator[T],
-        classTag: ClassTag[T]): Either[(PartiallyUnrolledIterator[T], Boolean), Long] = {
+        classTag: ClassTag[T]): Either[PartiallyUnrolledIterator[T], Long] = {
       assert(blockInfoManager.lockNewBlockForWriting(
         blockId,
         new BlockInfo(StorageLevel.MEMORY_ONLY, classTag, tellMaster = false)))
@@ -170,8 +170,7 @@ class MemoryStoreSuite
     assert(memoryStore.currentUnrollMemoryForThisTask > 0) // we returned an iterator
     assert(!memoryStore.contains("someBlock2"))
     assert(putResult.isLeft)
-    val (partiallyUnrolledIterator, _) = putResult.left.get
-    assertSameContents(bigList, partiallyUnrolledIterator.toSeq, "putIterator")
+    assertSameContents(bigList, putResult.left.get.toSeq, "putIterator")
     // The unroll memory was freed once the iterator returned by putIterator() was fully traversed.
     assert(memoryStore.currentUnrollMemoryForThisTask === 0)
   }
@@ -187,7 +186,7 @@ class MemoryStoreSuite
     def putIteratorAsValues[T](
         blockId: BlockId,
         iter: Iterator[T],
-        classTag: ClassTag[T]): Either[(PartiallyUnrolledIterator[T], Boolean), Long] = {
+        classTag: ClassTag[T]): Either[PartiallyUnrolledIterator[T], Long] = {
       assert(blockInfoManager.lockNewBlockForWriting(
         blockId,
         new BlockInfo(StorageLevel.MEMORY_ONLY, classTag, tellMaster = false)))
@@ -236,7 +235,7 @@ class MemoryStoreSuite
     assert(memoryStore.contains("b3"))
     assert(!memoryStore.contains("b4"))
     assert(memoryStore.currentUnrollMemoryForThisTask > 0) // we returned an iterator
-    result4.left.get._1.close()
+    result4.left.get.close()
     assert(memoryStore.currentUnrollMemoryForThisTask === 0) // close released the unroll memory
   }
 
@@ -355,7 +354,7 @@ class MemoryStoreSuite
 
     def putIteratorAsValues(
         blockId: BlockId,
-        iter: Iterator[Any]): Either[(PartiallyUnrolledIterator[Any], Boolean), Long] = {
+        iter: Iterator[Any]): Either[PartiallyUnrolledIterator[Any], Long] = {
        memoryStore.putIteratorAsValues(blockId, iter, ClassTag.Any)
     }
 
