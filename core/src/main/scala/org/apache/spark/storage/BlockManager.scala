@@ -879,7 +879,7 @@ private[spark] class BlockManager(
             serializerManager.dataDeserializeStream(blockId, bytes.toInputStream())(classTag)
           memoryStore.putIteratorAsValues(blockId, values, classTag) match {
             case Right(_) => true
-            case Left((iter, _)) =>
+            case Left(iter) =>
               // If putting deserialized values in memory failed, we will put the bytes directly to
               // disk, so we don't need this iterator and can close it to free resources earlier.
               iter.close()
@@ -1038,9 +1038,9 @@ private[spark] class BlockManager(
           memoryStore.putIteratorAsValues(blockId, iterator(), classTag) match {
             case Right(s) =>
               size = s
-            case Left((iter, notTooBig)) =>
+            case Left(iter) =>
               // Not enough space to unroll this block; drop to disk if applicable
-              if (level.useDisk && notTooBig) {
+              if (level.useDisk) {
                 logWarning(s"Persisting block $blockId to disk instead.")
                 diskStore.put(blockId) { channel =>
                   val out = Channels.newOutputStream(channel)
@@ -1183,7 +1183,7 @@ private[spark] class BlockManager(
           memoryStore.getValues(blockId).get
         } else {
           memoryStore.putIteratorAsValues(blockId, diskIterator, classTag) match {
-            case Left((iter, _)) =>
+            case Left(iter) =>
               // The memory store put() failed, so it returned the iterator back to us:
               iter
             case Right(_) =>
