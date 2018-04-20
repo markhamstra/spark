@@ -223,14 +223,6 @@ class ParquetLocationSelectionSuite extends QueryTest with SQLTestUtils with Tes
       hmc.selectParquetLocationDirectories("sometable", Option(new Path("somewhere")))
     }
 
-    // ensure file existence for somewhere/sometable
-    somewhereSometable.delete()
-    somewhereSometable.createNewFile()
-    // somewhere/sometable is a file => will not be selected
-    assertResult(Seq(new Path("somewhere"))) {
-      hmc.selectParquetLocationDirectories("otherplace", Option(new Path("somewhere")))
-    }
-
     // no location specified, none selected
     assertResult(Seq(null)) {
       hmc.selectParquetLocationDirectories("sometable", Option(null))

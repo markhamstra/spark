@@ -227,23 +227,28 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
     result.copy(output = newOutput)
   }
 
+  /**
+   * Selecting directories at driver side by interacting with hdfs won't scale.
+   * TODO: migrate to parquet partitioning
+   */
   private[hive] def selectParquetLocationDirectories(
       tableName: String,
       locationOpt: Option[Path]): Seq[Path] = {
+    val start = System.currentTimeMillis
     val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
     val paths: Option[Seq[Path]] = for {
       selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
       location <- locationOpt
       fs = location.getFileSystem(hadoopConf)
-      selectedPaths <- selector.selectFiles(tableName, fs, location)
-      selectedDir = for {
-        selectedPath <- selectedPaths
-        if selectedPath
-          .getFileSystem(hadoopConf)
-          .isDirectory(selectedPath)
-      } yield selectedPath
+      // Csd's HadoopFileSelector should guarantee to return directories only,
+      selectedDir <- selector.selectFiles(tableName, fs, location)
       if selectedDir.nonEmpty
     } yield selectedDir
+    logDebug(
+      s"process duration of HiveMetastoreCatalog.selectParquetLocationDirectories(" +
+        s"$tableName, $locationOpt): ${System.currentTimeMillis - start}, selected directories: " +
+        s"${paths.map(_.size).getOrElse(0)}")
+
     paths.getOrElse(Seq(locationOpt.orNull))
   }
 
