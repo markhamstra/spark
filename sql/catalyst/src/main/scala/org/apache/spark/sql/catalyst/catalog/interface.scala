@@ -298,6 +298,8 @@ case class CatalogTable(
       locationUri, inputFormat, outputFormat, serde, compressed, properties))
   }
 
+  def withTableName(newName: String): CatalogTable =
+    copy(identifier = identifier.copy(table = newName))
 
   def toLinkedHashMap: mutable.LinkedHashMap[String, String] = {
     val map = new mutable.LinkedHashMap[String, String]()

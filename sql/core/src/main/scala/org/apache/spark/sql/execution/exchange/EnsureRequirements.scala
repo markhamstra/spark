@@ -41,6 +41,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 
   private def adaptiveExecutionEnabled: Boolean = conf.adaptiveExecutionEnabled
 
+  private def adaptiveExecutionDisabledForJoin: Boolean = conf.adaptiveExecutionDisabledForJoining
+
   private def minNumPostShufflePartitions: Option[Int] = {
     val minNumPostShufflePartitions = conf.minNumPostShufflePartitions
     if (minNumPostShufflePartitions > 0) Some(minNumPostShufflePartitions) else None
@@ -52,7 +54,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
    */
   private def withExchangeCoordinator(
       children: Seq[SparkPlan],
-      requiredChildDistributions: Seq[Distribution]): Seq[SparkPlan] = {
+      requiredChildDistributions: Seq[Distribution],
+      disableAdaptiveExecution: Boolean = false ): Seq[SparkPlan] = {
     val supportsCoordinator =
       if (children.exists(_.isInstanceOf[ShuffleExchangeExec])) {
         // Right now, ExchangeCoordinator only support HashPartitionings.
@@ -78,7 +81,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
       }
 
     val withCoordinator =
-      if (adaptiveExecutionEnabled && supportsCoordinator) {
+      if (adaptiveExecutionEnabled && !disableAdaptiveExecution && supportsCoordinator) {
         val coordinator =
           new ExchangeCoordinator(
             children.length,
@@ -205,7 +208,19 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     // at here for now.
     // Once we finish https://issues.apache.org/jira/browse/SPARK-10665,
     // we can first add Exchanges and then add coordinator once we have a DAG of query fragments.
-    children = withExchangeCoordinator(children, requiredChildDistributions)
+
+    // We have observed some performance issue when enabling adaptive execution in performing
+    // joining. It is hard to predict how many results the joining will produce. When the estimation
+    // from previous stage is within the postShuffleSize estimation, it will produce only one
+    // partition and makes the performance bad. We will disable adaptive execution for
+    // joining now till we figure out a better way of size estimation in joining.
+    val disableAdaptiveExecutionForJoin =
+      operator.isInstanceOf[SortMergeJoinExec] &&
+      adaptiveExecutionEnabled &&
+      adaptiveExecutionDisabledForJoin
+
+    children =
+      withExchangeCoordinator(children, requiredChildDistributions, disableAdaptiveExecutionForJoin)
 
     // Now that we've performed any necessary shuffles, add sorts to guarantee output orderings:
     children = children.zip(requiredChildOrderings).map { case (child, requiredOrdering) =>

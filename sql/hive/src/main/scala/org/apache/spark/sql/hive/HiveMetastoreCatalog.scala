@@ -182,10 +182,16 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
       })
     } else {
       val rootPath = tablePath
+      val paths: Seq[Path] =
+        if (fileType != "parquet") {
+          Seq(rootPath)
+        } else {
+          selectParquetLocationDirectories(relation.tableMeta.identifier.table, Option(rootPath))
+        }
       withTableCreationLock(tableIdentifier, {
         val cached = getCached(
           tableIdentifier,
-          Seq(rootPath),
+          paths,
           metastoreSchema,
           fileFormatClass,
           None)
@@ -195,7 +201,7 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
             LogicalRelation(
               DataSource(
                 sparkSession = sparkSession,
-                paths = rootPath.toString :: Nil,
+                paths = paths.map(_.toString),
                 userSpecifiedSchema = Option(updatedTable.dataSchema),
                 bucketSpec = None,
                 options = options,
@@ -218,6 +224,32 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
     }
     result.copy(output = newOutput)
   }
+
+  /**
+   * Selecting directories at driver side by interacting with hdfs won't scale.
+   * TODO: migrate to parquet partitioning
+   */
+  private[hive] def selectParquetLocationDirectories(
+      tableName: String,
+      locationOpt: Option[Path]): Seq[Path] = {
+    val start = System.currentTimeMillis
+    val hadoopConf = sparkSession.sparkContext.hadoopConfiguration
+    val paths: Option[Seq[Path]] = for {
+      selector <- sparkSession.sharedState.externalCatalog.findHadoopFileSelector
+      location <- locationOpt
+      fs = location.getFileSystem(hadoopConf)
+      // Csd's HadoopFileSelector should guarantee to return directories only,
+      selectedDir <- selector.selectFiles(tableName, fs, location)
+      if selectedDir.nonEmpty
+    } yield selectedDir
+    logDebug(
+      s"process duration of HiveMetastoreCatalog.selectParquetLocationDirectories(" +
+        s"$tableName, $locationOpt): ${System.currentTimeMillis - start}, selected directories: " +
+        s"${paths.map(_.size).getOrElse(0)}")
+
+    paths.getOrElse(Seq(locationOpt.orNull))
+  }
+
 
   private def inferIfNeeded(
       relation: HiveTableRelation,
