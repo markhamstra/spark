@@ -303,7 +303,7 @@ class PoolSuite extends SparkFunSuite with LocalSparkContext {
     val schedulableBuilder = new FairSchedulableBuilder(rootPool, sc.conf)
     schedulableBuilder.buildPools()
 
-    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FIFO)
+    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FAIR)
     verifyPool(rootPool, "pool1", 3, 1, FIFO)
     verifyPool(rootPool, "pool2", 4, 2, FAIR)
     verifyPool(rootPool, "pool3", 2, 3, FAIR)
@@ -318,10 +318,10 @@ class PoolSuite extends SparkFunSuite with LocalSparkContext {
     val schedulableBuilder = new FairSchedulableBuilder(rootPool, sc.conf)
     schedulableBuilder.buildPools()
 
-    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FIFO)
+    verifyPool(rootPool, schedulableBuilder.DEFAULT_POOL_NAME, 0, 1, FAIR)
     verifyPool(rootPool, "1", 2, 1, FIFO)
     verifyPool(rootPool, "2", 3, 1, FIFO)
-    verifyPool(rootPool, "3", 0, 1, FIFO)
+    verifyPool(rootPool, "3", 0, 1, FAIR)
   }
 
   test("Fair Scheduler should throw FileNotFoundException " +
