@@ -80,7 +80,7 @@ RUN curl -sL --retry 3 \
 RUN ln -nsf $HADOOP_HOME/ /usr/lib/hadoop
 
 # SPARK
-ENV SPARK_VERSION 2.2.1
+ENV SPARK_VERSION 2.3.1
 ENV SPARK_HOME /usr/share/spark
 
 ADD dist $SPARK_HOME
