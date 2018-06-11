@@ -1737,6 +1737,15 @@ To use `groupBy().apply()`, the user needs to define the following:
 * A Python function that defines the computation for each group.
 * A `StructType` object or a string that defines the schema of the output `DataFrame`.
 
+The output schema will be applied to the columns of the returned `pandas.DataFrame` in order by position,
+not by name. This means that the columns in the `pandas.DataFrame` must be indexed so that their
+position matches the corresponding field in the schema.
+
+Note that when creating a new `pandas.DataFrame` using a dictionary, the actual position of the column
+can differ from the order that it was placed in the dictionary. It is recommended in this case to
+explicitly define the column order using the `columns` keyword, e.g.
+`pandas.DataFrame({'id': ids, 'a': data}, columns=['id', 'a'])`, or alternatively use an `OrderedDict`.
+
 Note that all data for a group will be loaded into memory before the function is applied. This can
 lead to out of memory exceptons, especially if the group sizes are skewed. The configuration for
 [maxRecordsPerBatch](#setting-arrow-batch-size) is not applied on groups and it is up to the user
@@ -1796,6 +1805,10 @@ working with timestamps in `pandas_udf`s to get the best performance, see
 [here](https://pandas.pydata.org/pandas-docs/stable/timeseries.html) for details.
 
 # Migration Guide
+
+## Upgrading From Spark SQL 2.3.0 to 2.3.1 and above
+
+  - As of version 2.3.1 Arrow functionality, including `pandas_udf` and `toPandas()`/`createDataFrame()` with `spark.sql.execution.arrow.enabled` set to `True`, has been marked as experimental. These are still evolving and not currently recommended for use in production.
 
 ## Upgrading From Spark SQL 2.2 to 2.3
 
