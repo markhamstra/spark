@@ -54,7 +54,6 @@ def prBuilder(){
 
 def releaseBuilder(){
   def mvnArgs="-Pdeb -U -Phadoop-2.7 -Dhadoop.version=2.8.2 -Pkubernetes -Pyarn -Phive -Phive-thriftserver -Dpyspark -Dsparkr -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true"
-  def dockerMvnArgs="--name custom-spark --pip --tgz -Psparkr -Phadoop-2.7 -Phive -Phive-thriftserver -Pyarn -Pkubernetes -Dhadoop.version=2.8.2"
   stage('Release Clean'){
     // We need to check out the branch as a "symbolic ref" (i.e. not as an SHA1), otherwise
     // Maven Release plugin won't be able to push to the branch.
@@ -85,10 +84,11 @@ def releaseBuilder(){
   }
   stage('Release Docker Image'){
     def dockerVersion = "csd-2.3.1-${spark_version.split('-')[-1]}"
+    def repo = "628897842239.dkr.ecr.us-west-2.amazonaws.com"
     sh """
-    dev/make-distribution.sh ${dockerMvnArgs} package
-    bin/docker-image-tool.sh -r 628897842239.dkr.ecr.us-west-2.amazonaws.com -t ${dockerVersion} build
-    bin/docker-image-tool.sh -r 628897842239.dkr.ecr.us-west-2.amazonaws.com -t ${dockerVersion} push
+    dev/make-distribution.sh --name custom-spark --pip --tgz -Psparkr -Phadoop-2.7 -Phive -Phive-thriftserver -Pyarn -Pkubernetes -Dhadoop.version=2.8.2
+    bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} build
+    bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} push
     """
   }
 }
