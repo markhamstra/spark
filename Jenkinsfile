@@ -86,7 +86,7 @@ def releaseBuilder(){
   stage('Release Docker Image'){
     def dockerVersion = "csd-2.3.1-${spark_version.split('-')[-1]}"
     sh """
-    dev/make-distribution.sh --name custom-spark -U ${dockerMvnArgs} package
+    dev/make-distribution.sh ${dockerMvnArgs} package
     bin/docker-image-tool.sh -r 628897842239.dkr.ecr.us-west-2.amazonaws.com -t ${dockerVersion} build
     bin/docker-image-tool.sh -r 628897842239.dkr.ecr.us-west-2.amazonaws.com -t ${dockerVersion} push
     """
