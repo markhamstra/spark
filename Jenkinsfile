@@ -86,7 +86,7 @@ def releaseBuilder(){
     def dockerVersion = "csd-2.3.1-${spark_version.split('-')[-1]}"
     def repo = "628897842239.dkr.ecr.us-west-2.amazonaws.com"
     sh """
-    dev/make-distribution.sh --name custom-spark --pip --tgz -Psparkr -Phadoop-2.7 -Phive -Phive-thriftserver -Pyarn -Pkubernetes -Dhadoop.version=2.8.2
+    dev/make-distribution.sh --name custom-spark --pip --tgz -Phadoop-2.7 -Phive -Phive-thriftserver -Pyarn -Pkubernetes -Dhadoop.version=2.8.2
     bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} build
     bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} push
     """
