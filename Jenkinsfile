@@ -6,6 +6,9 @@ pipeline{
     timestamps()
     ansiColor('xterm')
   }
+  triggers {
+    issueCommentTrigger('.*jttp.*')
+  }
   stages{
     stage('Checkout Source'){
       steps{
