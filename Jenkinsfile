@@ -83,7 +83,7 @@ def releaseBuilder(){
     """
   }
   stage('Release Docker Image'){
-    def dockerVersion = "csd-2.2.1-${spark_version.split('-')[-1]}"
+    def dockerVersion = "csd-2.2.2-${spark_version.split('-')[-1]}"
     sh """
     dev/make-distribution.sh --name custom-spark -U ${mvnArgs} package
     docker build -t spark:${dockerVersion} .
