@@ -71,7 +71,7 @@ def releaseBuilder(){
 
     sh "build/mvn ${mvnArgs} release:clean"
     pom = readMavenPom(file: 'pom.xml')
-    spark_version = pom.version.replace("-SNAPSHOT", "")
+    sparkVersion = pom.version.replace("-SNAPSHOT", "")
   }
   stage('Release Prepare'){
     sh "build/mvn --batch-mode ${mvnArgs} -Darguments=\"${mvnArgs}\" release:prepare"
@@ -86,12 +86,11 @@ def releaseBuilder(){
     """
   }
   stage('Release Docker Image'){
-    def dockerVersion = "csd-2.3.1-${spark_version.split('-')[-1]}"
     def repo = "628897842239.dkr.ecr.us-west-2.amazonaws.com"
     sh """
     dev/make-distribution.sh --name custom-spark --pip --tgz -Phadoop-2.7 -Phive -Phive-thriftserver -Pyarn -Pkubernetes -Dhadoop.version=2.8.2
-    bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} build
-    bin/docker-image-tool.sh -r ${repo} -t ${dockerVersion} push
+    bin/docker-image-tool.sh -r ${repo} -t ${sparkVersion} build
+    bin/docker-image-tool.sh -r ${repo} -t ${sparkVersion} push
     """
   }
 }
