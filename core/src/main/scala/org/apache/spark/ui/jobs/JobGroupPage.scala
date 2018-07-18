@@ -20,27 +20,38 @@ package org.apache.spark.ui.jobs
 import javax.servlet.http.HttpServletRequest
 
 import scala.collection.mutable.ListBuffer
-import scala.xml._
+import scala.xml.{Node, NodeSeq}
 
 import org.apache.spark.JobExecutionStatus
-import org.apache.spark.scheduler._
 import org.apache.spark.status.AppStatusStore
 import org.apache.spark.status.api.v1
 import org.apache.spark.ui._
 
-/** Page showing list of all ongoing and recently finished jobs */
-private[ui] class AllJobsPage(parent: JobsTab, store: AppStatusStore) extends WebUIPage("") {
+/** Page showing list of all ongoing and recently finished jobs belonging to a job group id */
+private[ui] class JobGroupPage(parent: JobsTab, store: AppStatusStore)
+    extends WebUIPage("jobgroup") {
 
   def render(request: HttpServletRequest): Seq[Node] = {
-    val appInfo = store.applicationInfo()
-    val startTime = appInfo.attempts.head.startTime.getTime()
-    val endTime = appInfo.attempts.head.endTime.getTime()
+    val parameterId = UIUtils.stripXSS(request.getParameter("id"))
+    require(parameterId != null && parameterId.nonEmpty, "Missing id parameter")
+
+    val jobGroupId = parameterId
 
     val activeJobs = new ListBuffer[v1.JobData]()
     val completedJobs = new ListBuffer[v1.JobData]()
     val failedJobs = new ListBuffer[v1.JobData]()
 
-    store.jobsList(null).foreach { job =>
+    var totalJobExecutionTime = 0L
+    store.jobsInJobGroupList(jobGroupId, null).foreach { job =>
+      val duration: Option[Long] = {
+        job.submissionTime.map { start =>
+          val end = job.completionTime.map(_.getTime).getOrElse(System.currentTimeMillis())
+          end - start.getTime()
+        }
+      }
+
+      totalJobExecutionTime += duration.getOrElse(0L)
+
       job.status match {
         case JobExecutionStatus.SUCCEEDED =>
           completedJobs += job
@@ -65,76 +76,62 @@ private[ui] class AllJobsPage(parent: JobsTab, store: AppStatusStore) extends We
     val shouldShowCompletedJobs = completedJobs.nonEmpty
     val shouldShowFailedJobs = failedJobs.nonEmpty
 
-    val appSummary = store.appSummary()
-    val completedJobNumStr = if (completedJobs.size == appSummary.numCompletedJobs) {
-      s"${completedJobs.size}"
-    } else {
-      s"${appSummary.numCompletedJobs}, only showing ${completedJobs.size}"
-    }
-
-    val schedulingMode = store.environmentInfo().sparkProperties.toMap
-      .get("spark.scheduler.mode")
-      .map { mode => SchedulingMode.withName(mode).toString }
-      .getOrElse("Unknown")
-
     val summary: NodeSeq =
       <div>
         <ul class="unstyled">
           <li>
-            <strong>User:</strong>
-            {parent.getSparkUser}
-          </li>
-          <li>
-            <strong>Total Uptime:</strong>
+            <strong>Total Duration:</strong>
             {
-              if (endTime < 0 && parent.sc.isDefined) {
-                UIUtils.formatDuration(System.currentTimeMillis() - startTime)
-              } else if (endTime > 0) {
-                UIUtils.formatDuration(endTime - startTime)
-              }
+            if (totalJobExecutionTime == 0) {
+              "Unknown"
+            } else {
+              UIUtils.formatDuration(totalJobExecutionTime)
+            }
             }
           </li>
           <li>
-            <strong>Scheduling Mode: </strong>
-            {schedulingMode}
+            <strong>Total jobs submitted:</strong>
+            {activeJobs.size + completedJobs.size + failedJobs.size}
           </li>
           {
-            if (shouldShowActiveJobs) {
-              <li>
-                <a href="#active"><strong>Active Jobs:</strong></a>
-                {activeJobs.size}
-              </li>
-            }
+          if (shouldShowActiveJobs) {
+            <li>
+              <a href="#active"><strong>Active Jobs:</strong></a>
+              {activeJobs.size}
+            </li>
+          }
           }
           {
-            if (shouldShowCompletedJobs) {
-              <li id="completed-summary">
-                <a href="#completed"><strong>Completed Jobs:</strong></a>
-                {completedJobNumStr}
-              </li>
-            }
+          if (shouldShowCompletedJobs) {
+            <li id="completed-summary">
+              <a href="#completed"><strong>Completed Jobs:</strong></a>
+              {completedJobs.size}
+            </li>
+          }
           }
           {
-            if (shouldShowFailedJobs) {
-              <li>
-                <a href="#failed"><strong>Failed Jobs:</strong></a>
-                {failedJobs.size}
-              </li>
-            }
+          if (shouldShowFailedJobs) {
+            <li>
+              <a href="#failed"><strong>Failed Jobs:</strong></a>
+              {failedJobs.size}
+            </li>
+          }
           }
         </ul>
       </div>
 
     var content = summary
+    val appStartTime = store.applicationInfo().attempts.head.startTime.getTime()
+
     content ++= JobsUtils.makeTimeline(store, activeJobs ++ completedJobs ++ failedJobs,
-      store.executorList(false), startTime)
+      store.executorList(false), appStartTime)
 
     if (shouldShowActiveJobs) {
       content ++= <h4 id="active">Active Jobs ({activeJobs.size})</h4> ++
         activeJobsTable
     }
     if (shouldShowCompletedJobs) {
-      content ++= <h4 id="completed">Completed Jobs ({completedJobNumStr})</h4> ++
+      content ++= <h4 id="completed">Completed Jobs ({completedJobs.size})</h4> ++
         completedJobsTable
     }
     if (shouldShowFailedJobs) {

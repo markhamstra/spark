@@ -52,6 +52,18 @@ private[spark] class AppStatusStore(
     }
   }
 
+  def jobsInJobGroupList(
+    jobGroupId: String,
+    statuses: JList[JobExecutionStatus]): Seq[v1.JobData] = {
+    val it = store.view(classOf[JobDataWrapper]).index("jobGroupId")
+      .first(jobGroupId).last(jobGroupId).asScala.map(_.info)
+    if (statuses != null && !statuses.isEmpty()) {
+      it.filter { job => statuses.contains(job.status) }.toSeq
+    } else {
+      it.toSeq
+    }
+  }
+
   def job(jobId: Int): v1.JobData = {
     store.read(classOf[JobDataWrapper], jobId).info
   }

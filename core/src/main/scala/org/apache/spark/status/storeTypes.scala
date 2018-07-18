@@ -73,6 +73,9 @@ private[spark] class JobDataWrapper(
   @JsonIgnore @KVIndex
   private def id: Int = info.jobId
 
+  @JsonIgnore @KVIndex("jobGroupId")
+  private def jobGroupId: String = info.jobGroup.getOrElse("")
+
   @JsonIgnore @KVIndex("completionTime")
   private def completionTime: Long = info.completionTime.map(_.getTime).getOrElse(-1L)
 }

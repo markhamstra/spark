@@ -44,6 +44,7 @@ private[ui] class JobsTab(parent: SparkUI, store: AppStatusStore)
 
   attachPage(new AllJobsPage(this, store))
   attachPage(new JobPage(this, store))
+  attachPage(new JobGroupPage(this, store))
 
   def handleKillRequest(request: HttpServletRequest): Unit = {
     if (killEnabled && parent.securityManager.checkModifyPermissions(request.getRemoteUser)) {
