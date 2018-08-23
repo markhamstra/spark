@@ -324,8 +324,9 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
           // SPARK-15262: If an executor is still alive even after the scheduler has removed
           // its metadata, we may receive a heartbeat from that executor and tell its block
           // manager to reregister itself. If that happens, the block manager master will know
-          // about the executor, but the scheduler will not. Therefore, we should remove the
-          // executor from the block manager when we hit this case.
+          // about the executor, but the scheduler will not. (The same state will occur if an
+          // executor has been dynamically allocated but never assigned any task: SPARK-21876.)
+          // Therefore, we should remove the executor from the block manager when we hit this case.
           scheduler.sc.env.blockManager.master.removeExecutorAsync(executorId)
           logInfo(s"Asked to remove non-existent executor $executorId")
       }
