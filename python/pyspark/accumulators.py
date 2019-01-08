@@ -110,10 +110,14 @@ _accumulatorRegistry = {}
 
 def _deserialize_accumulator(aid, zero_value, accum_param):
     from pyspark.accumulators import _accumulatorRegistry
-    accum = Accumulator(aid, zero_value, accum_param)
-    accum._deserialized = True
-    _accumulatorRegistry[aid] = accum
-    return accum
+    # If this certain accumulator was deserialized, don't overwrite it.
+    if aid in _accumulatorRegistry:
+        return _accumulatorRegistry[aid]
+    else:
+        accum = Accumulator(aid, zero_value, accum_param)
+        accum._deserialized = True
+        _accumulatorRegistry[aid] = accum
+        return accum
 
 
 class Accumulator(object):
@@ -259,9 +263,10 @@ class _UpdateRequestHandler(SocketServer.StreamRequestHandler):
                 raise Exception(
                     "The value of the provided token to the AccumulatorServer is not correct.")
 
-        # first we keep polling till we've received the authentication token
-        poll(authenticate_and_accum_updates)
-        # now we've authenticated, don't need to check for the token anymore
+        if auth_token is not None:
+            # first we keep polling till we've received the authentication token
+            poll(authenticate_and_accum_updates)
+        # now we've authenticated if needed, don't need to check for the token anymore
         poll(accum_updates)
 
 
