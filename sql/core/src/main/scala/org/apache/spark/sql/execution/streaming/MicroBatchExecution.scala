@@ -111,6 +111,24 @@ class MicroBatchExecution(
   }
 
   /**
+   * Signals to the thread executing micro-batches that it should stop running after the next
+   * batch. This method blocks until the thread stops running.
+   */
+  override def stop(): Unit = {
+    // Set the state to TERMINATED so that the batching thread knows that it was interrupted
+    // intentionally
+    state.set(TERMINATED)
+    if (queryExecutionThread.isAlive) {
+      sparkSession.sparkContext.cancelJobGroup(runId.toString)
+      queryExecutionThread.interrupt()
+      queryExecutionThread.join()
+      // microBatchThread may spawn new jobs, so we need to cancel again to prevent a leak
+      sparkSession.sparkContext.cancelJobGroup(runId.toString)
+    }
+    logInfo(s"Query $prettyIdString was stopped")
+  }
+
+  /**
    * Repeatedly attempts to run batches as data arrives.
    */
   protected def runActivatedStream(sparkSessionForStream: SparkSession): Unit = {
@@ -487,6 +505,16 @@ class MicroBatchExecution(
     try {
       // Wake up any threads that are waiting for the stream to progress.
       awaitProgressLockCondition.signalAll()
+    } finally {
+      awaitProgressLock.unlock()
+    }
+  }
+
+  /** Execute a function while locking the stream from making an progress */
+  private[sql] def withProgressLocked(f: => Unit): Unit = {
+    awaitProgressLock.lock()
+    try {
+      f
     } finally {
       awaitProgressLock.unlock()
     }
