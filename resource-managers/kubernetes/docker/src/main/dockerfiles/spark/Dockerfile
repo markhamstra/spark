@@ -30,7 +30,7 @@ ARG img_path=kubernetes/dockerfiles
 RUN set -ex && \
     apk upgrade --no-cache && \
     ln -s /lib /lib64 && \
-    apk add --no-cache bash tini libc6-compat linux-pam krb5 krb5-libs && \
+    apk add --no-cache bash tini libc6-compat linux-pam nss krb5 krb5-libs && \
     mkdir -p /opt/spark && \
     mkdir -p /opt/spark/work-dir \
     touch /opt/spark/RELEASE && \
